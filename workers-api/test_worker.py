@@ -210,9 +210,9 @@ class ContractTest(unittest.TestCase):
         self.assertTrue(any("RETURNING" in call[0] for call in self.db.calls))
         handler = worker.Default()
         handler.env = types.SimpleNamespace(DB=self.db)
-        self.assertEqual(asyncio.run(handler.cached(["a:b", "c"], lambda: {"n": 1})), {"n": 1})
-        self.assertEqual(asyncio.run(handler.cached(["a", "b:c"], lambda: {"n": 2})), {"n": 2})
-        tokens = [params[1] for sql, params, _ in self.db.calls if "INSERT INTO d1_cache" in sql]
+        self.assertEqual(asyncio.run(handler.cached(["a:b", "c"], lambda: {"n": 1}, origin="test")), {"n": 1})
+        self.assertEqual(asyncio.run(handler.cached(["a", "b:c"], lambda: {"n": 2}, origin="test")), {"n": 2})
+        tokens = [params[2] for sql, params, _ in self.db.calls if "INSERT INTO d1_cache" in sql]
         self.assertEqual(len(tokens), len(set(tokens)))
 
     def test_corrupt_cache_never_leaks_or_calls_provider(self):
@@ -260,6 +260,39 @@ class ContractTest(unittest.TestCase):
             self.assertFalse(thread.is_alive())
             self.assertEqual(responses[0][0], 200)
             search.assert_called_once()
+
+    def test_origin_contention_preserves_stale_and_allows_other_origin(self):
+        started, release = threading.Event(), threading.Event()
+        responses = []
+
+        def search(name):
+            if name == "busy":
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("timeout")
+            return [{"name": name}]
+
+        with patch.object(worker.time, "time", return_value=1000) as clock, \
+             patch.object(worker, "search_schools", side_effect=search) as search_mock, \
+             patch.object(worker, "NEISClient") as neis:
+            neis.return_value.search_schools.return_value = []
+            self.assertEqual(self.request("/schools?q=stale")[1]["stale"], False)
+            clock.return_value = 2800
+            thread = threading.Thread(target=lambda: responses.append(self.request("/schools?q=busy")))
+            thread.start()
+            try:
+                self.assertTrue(started.wait(5))
+                status, body = self.request("/schools?q=stale")
+                self.assertEqual((status, body), (200, {"schools": [{"name": "stale"}], "stale": True}))
+                self.assertEqual(self.request("/schools?q=cold")[0], 503)
+                self.assertEqual(self.request("/api/v1/neis/schools?q=independent", key="mock-key"),
+                                 (200, {"schools": [], "stale": False}))
+            finally:
+                release.set()
+                thread.join(10)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(responses[0][0], 200)
+            self.assertEqual(search_mock.call_count, 2)
 
     def test_week_boundary_discards_upstream_result(self):
         with patch.object(worker, "validate_timetable_week", side_effect=[1, 0]), \

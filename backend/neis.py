@@ -178,11 +178,11 @@ class NEISClient:
         result = []
         for row in rows:
             try:
-                meal_date = date.fromisoformat(row["MLSV_YMD"]).isoformat()
+                meal_date = date.fromisoformat(row["MLSV_YMD"])
                 menu = row["DDISH_NM"]
-                if not isinstance(menu, str):
+                if not start <= meal_date <= end or not isinstance(menu, str) or not menu.strip():
                     raise ValueError
             except (KeyError, TypeError, ValueError):
                 raise NEISResponseError("NEIS 급식 데이터가 올바르지 않습니다.") from None
-            result.append(Meal(meal_date, row.get("MMEAL_SC_NM") or "", menu, row.get("CAL_INFO"), row.get("ORPLC_INFO")))
+            result.append(Meal(meal_date.isoformat(), row.get("MMEAL_SC_NM") or "", menu, row.get("CAL_INFO"), row.get("ORPLC_INFO")))
         return result

@@ -11,6 +11,11 @@ behavior; that needs separate D1 validation.
 Use a new random owner token for every attempt and obtain UTC time immediately
 before each operation; clock skew or delayed SQL execution can affect expiry.
 When no stale value exists, callers choose their own unavailable/backoff response.
+
+Callers pass an explicit origin group with every refresh lease. An origin slot
+limits unexpired leases in this database, not actual upstream work after
+expiry, requests bypassing this cache, or request rate. All callers sharing
+the origin must use the same database and current UTC clock.
 """
 
 from __future__ import annotations
@@ -69,22 +74,27 @@ class D1Cache:
                           int(row["retry_after"]) if row.get("retry_after") is not None else None,
                           int(row["failures"]))
 
-    async def acquire_refresh(self, key: str, owner_token: str, *, now: int,
+    async def acquire_refresh(self, key: str, owner_token: str, *, origin: str, now: int,
                               lease_seconds: int) -> bool:
-        if not key or not owner_token or lease_seconds < 1:
-            raise ValueError("key, owner token, and positive lease are required")
+        if not key or not owner_token or not isinstance(origin, str) or not origin.strip() or lease_seconds < 1:
+            raise ValueError("key, owner token, origin, and positive lease are required")
         row = await self._first(
             """INSERT INTO d1_cache
-                   (cache_key, payload, expires_at, refresh_owner, lease_until, failures, retry_after)
-               VALUES (?, NULL, 0, ?, ?, 0, NULL)
+                   (cache_key, origin, payload, expires_at, refresh_owner, lease_until, failures, retry_after)
+               SELECT ?, ?, NULL, 0, ?, ?, 0, NULL
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM d1_cache
+                   WHERE origin = ? AND refresh_owner IS NOT NULL AND lease_until > ?
+               )
                ON CONFLICT(cache_key) DO UPDATE SET
                    refresh_owner = excluded.refresh_owner,
                    lease_until = excluded.lease_until
-               WHERE (d1_cache.refresh_owner IS NULL OR d1_cache.lease_until <= ?)
+               WHERE d1_cache.origin = excluded.origin
+                 AND (d1_cache.refresh_owner IS NULL OR d1_cache.lease_until <= ?)
                  AND (d1_cache.retry_after IS NULL OR d1_cache.retry_after <= ?)
                  AND d1_cache.expires_at <= ?
                RETURNING refresh_owner""",
-            key, owner_token, now + lease_seconds, now, now, now,
+            key, origin, owner_token, now + lease_seconds, origin, now, now, now, now,
         )
         return row is not None and row.get("refresh_owner") == owner_token
 

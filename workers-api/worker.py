@@ -52,7 +52,7 @@ class Default(WorkerEntrypoint):
                 result = {"status": "ok", "scope": "process liveness"}
             elif parts.path in ("/schools", "/api/v1/schools"):
                 name = self.query(query, "q", 50)
-                result = await self.cached(["schools", name], lambda: {"schools": search_schools(name), "stale": False})
+                result = await self.cached(["schools", name], lambda: {"schools": search_schools(name), "stale": False}, origin="comcigan")
             elif parts.path in ("/timetable", "/api/v1/timetable"):
                 school = self.query(query, "school", 100)
                 if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school) or int(school.split(":", 1)[0]) == 0:
@@ -62,7 +62,8 @@ class Default(WorkerEntrypoint):
                 def check_week():
                     if validate_timetable_week(week) != week_offset:
                         raise ValueError("school week changed during request")
-                result = await self.cached(["timetable", school, week], lambda: fetch_timetable(school, week), check_week)
+                result = await self.cached(["timetable", school, week], lambda: fetch_timetable(school, week), check_week,
+                                           origin="comcigan")
                 check_week()
             elif parts.path == "/api/v1/neis/schools":
                 name = self.query(query, "q", 50)
@@ -74,7 +75,7 @@ class Default(WorkerEntrypoint):
                     return {"schools": [{"id": f"{school.office_code}:{school.school_code}",
                     "name": school.name, "region": school.kind, "address": school.address}
                     for school in schools], "stale": False}
-                result = await self.cached(["neis-schools", name], load_schools)
+                result = await self.cached(["neis-schools", name], load_schools, origin="neis")
             elif parts.path == "/api/v1/meals":
                 school_id = self.query(query, "school", 20)
                 if not re.fullmatch(r"[A-Z][0-9]{2}:[0-9]{7}", school_id):
@@ -97,7 +98,8 @@ class Default(WorkerEntrypoint):
                     return {"meals": [{"date": meal.date, "type": meal.meal_type,
                     "dishes": re.split(r"<br\s*/?>", meal.menu, flags=re.I)}
                     for meal in meals], "stale": False}
-                result = await self.cached(["meals", school_id, start_text, end_text], load_meals)
+                result = await self.cached(["meals", school_id, start_text, end_text], load_meals,
+                                           origin="neis")
             else:
                 return self.respond(404, {"error": "not found"}, cors_origin)
         except ValueError as exc:
@@ -107,13 +109,13 @@ class Default(WorkerEntrypoint):
             return self.respond(503, {"error": "upstream unavailable"}, cors_origin)
         return self.respond(200, result, cors_origin)
 
-    async def cached(self, components, load, check=None):
+    async def cached(self, components, load, check=None, *, origin):
         try:
-            return await self._cached(components, load, check)
+            return await self._cached(components, load, check, origin)
         except ValueError as exc:
             raise RuntimeError("cache unavailable") from exc
 
-    async def _cached(self, components, load, check):
+    async def _cached(self, components, load, check, origin):
         database = getattr(self.env, "DB", None)
         if database is None:
             raise RuntimeError("cache unavailable")
@@ -125,7 +127,8 @@ class Default(WorkerEntrypoint):
             return entry.value
         stale = entry.value if entry and entry.has_value else None
         token = secrets.token_urlsafe(32)
-        if not await cache.acquire_refresh(key, token, now=int(time.time()), lease_seconds=120):
+        if not await cache.acquire_refresh(key, token, origin=origin,
+                                           now=int(time.time()), lease_seconds=120):
             if stale is not None:
                 return {**stale, "stale": True}
             raise RuntimeError("cache refresh unavailable")

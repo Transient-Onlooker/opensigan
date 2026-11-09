@@ -14,9 +14,15 @@ On 2026-11-10, a local Wrangler Worker with the local D1 schema wrote fixture sc
 
 School searches, timetables, NEIS searches and meals require `env.DB` and use D1 with a 30-minute TTL. Expired results are served with `stale: true` when a refresh fails or another request holds the lease; without a previous result, duplicate requests and failure backoff return 503. Cache errors never trigger an unrestricted upstream bypass. Leases last 120 seconds, are not renewed, and fence expired owners from writing; a slow provider may still overlap a takeover. Stale data has no maximum age. Existing synchronous providers are unchanged.
 
+Each refresh requires an explicit origin group. The Worker assigns `comcigan` to school searches and timetables, and `neis` to NEIS searches and meals. One unexpired lease per origin is allowed across different keys in the same database; a key must retain the same origin. All callers for an origin must use the same database and a current UTC clock. This is a limit on leases, not a strict limit on actual upstream calls after lease expiry, a request-rate limit, or protection against callers that bypass this cache. SQLite/mock tests do not establish distributed D1 behavior.
+
 The Worker injects a synchronous `requests` transport for NEIS with the provider's timeout and redirects disabled. HTTP errors and requests exceptions become sanitized network errors; urllib3 connection-pool debug logging is suppressed because the URL contains the NEIS key. A separate local experiment reported that `urllib.request` disconnected while `requests` returned a NEIS sample with HTTP 200/INFO-000; this integration itself has only mock coverage so far.
 
 **Incomplete:** SQLite/mock tests do not establish Cloudflare D1 consistency, Python binding compatibility, clock behavior, or distributed concurrency. Validate those in an authorized distributed environment before relying on this cache. The all-zero database ID below is a local placeholder, not a provisioned remote database. No remote deployment is authorized by these instructions.
+
+## Recreate the local prototype database
+
+The explicit `origin` column changes the schema; rerunning `schema.sql` against an old database does not add that column because the table already exists. Stop any local Worker using the old database. Follow the staging commands below to create a **new** stage, enter that stage, and run `pywrangler d1 execute opensigan-cache-local --local --file schema.sql` before starting the local Worker. The new stage has a fresh local database and an empty cache; the old stage and its data remain untouched. Use only the new stage's database with the new code, and do not mix old and new workers against the same database. This is a local prototype reset, not a migration or remote operation.
 
 ## Reproduce on this Windows workspace
 

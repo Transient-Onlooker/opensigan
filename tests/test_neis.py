@@ -50,11 +50,13 @@ class NEISTests(unittest.TestCase):
         def transport(url, timeout):
             seen.append(parse_qs(urlsplit(url).query))
             return response("mealServiceDietInfo", [{"MLSV_YMD": "20261110", "MMEAL_SC_NM": "중식",
-                "DDISH_NM": "밥<br/>계란(1.5.)", "CAL_INFO": "700 Kcal", "ORPLC_INFO": "쌀: 국내산"}])
+                "DDISH_NM": "밥<br/>계란(1.5.)", "CAL_INFO": "700 Kcal", "ORPLC_INFO": "쌀: 국내산"},
+                {"MLSV_YMD": "20261111", "DDISH_NM": "두부(5.)"}])
 
         client = NEISClient("key", transport=transport)
         meals = client.get_meals(School("A10", "1000001", "학교"), date(2026, 11, 10), date(2026, 11, 11))
-        self.assertEqual(meals, [Meal("2026-11-10", "중식", "밥<br/>계란(1.5.)", "700 Kcal", "쌀: 국내산")])
+        self.assertEqual(meals, [Meal("2026-11-10", "중식", "밥<br/>계란(1.5.)", "700 Kcal", "쌀: 국내산"),
+                                 Meal("2026-11-11", "", "두부(5.)")])
         self.assertEqual(seen[0]["ATPT_OFCDC_SC_CODE"], ["A10"])
         self.assertEqual(seen[0]["SD_SCHUL_CODE"], ["1000001"])
         self.assertEqual(seen[0]["MLSV_TO_YMD"], ["20261111"])
@@ -64,6 +66,23 @@ class NEISTests(unittest.TestCase):
         client = NEISClient("key", transport=lambda url, timeout: empty)
         self.assertEqual(client.search_schools("없는 학교"), [])
         self.assertEqual(client.get_meals(School("A10", "1", "학교"), date(2026, 1, 1), date(2026, 1, 1)), [])
+
+    def test_meals_reject_missing_or_blank_menu(self):
+        for fields in [{}, {"DDISH_NM": None}, {"DDISH_NM": ""}, {"DDISH_NM": "   "}]:
+            with self.subTest(fields=fields):
+                row = {"MLSV_YMD": "20261110", **fields}
+                valid = {"MLSV_YMD": "20261110", "DDISH_NM": "계란(1.5.)"}
+                client = NEISClient("key", transport=lambda url, timeout: response("mealServiceDietInfo", [valid, row]))
+                with self.assertRaises(NEISResponseError):
+                    client.get_meals(School("A10", "1000001", "학교"), date(2026, 11, 10), date(2026, 11, 10))
+
+    def test_meals_reject_dates_outside_requested_range(self):
+        for meal_date in ["20261109", "20261112"]:
+            with self.subTest(meal_date=meal_date):
+                row = {"MLSV_YMD": meal_date, "DDISH_NM": "계란(1.5.)"}
+                client = NEISClient("key", transport=lambda url, timeout: response("mealServiceDietInfo", [row]))
+                with self.assertRaises(NEISResponseError):
+                    client.get_meals(School("A10", "1000001", "학교"), date(2026, 11, 10), date(2026, 11, 11))
 
     def test_pagination_returns_all_candidates(self):
         def transport(url, timeout):
