@@ -1,0 +1,6 @@
+.venv/
+.venv-workers/
+.uv-cache/
+python_modules/
+.wrangler/
+__pycache__/
