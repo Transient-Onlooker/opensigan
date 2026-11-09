@@ -21,6 +21,13 @@ class FakeLesson:
 
 
 class TimetableTests(unittest.TestCase):
+    def test_seven_day_source_keeps_weekday_records(self):
+        days = [[], [FakeLesson(1, "Math", "Kim")], [], [], [], [], [], []]
+        table = type("Table", (), {"timetable": [[], [[], days]], "update_date": None})()
+        result, _ = self.fetch_with("2026-11-09", table)
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(result["records"][0]["date"], "2026-11-09")
+
     def fetch_with(self, week, table, today=(2026, 11, 10)):
         fixed_datetime = type("FixedDateTime", (datetime,), {
             "now": classmethod(lambda cls, tz=None: datetime(*today, tzinfo=tz))
