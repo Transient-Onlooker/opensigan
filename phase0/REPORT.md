@@ -1,5 +1,7 @@
 # Phase 0 근거 및 판정 — 2026-11-10 KST
 
+실제 MVP의 고정 Git 커밋을 사용한 별도 Workers 실험에서는 pywrangler의 `uv pip compile --no-build`가 Git 소스 빌드를 거부하여 로컬 서버 기동 전 중단됐다. 원본 검색은 호출되지 않았다. 상세와 재현 파일은 [phase0-mvp](../phase0-mvp/README.md)에 있다. 이는 패키징 장애이며, wheel로 준비했을 때의 네트워크·CPU 호환성 판정은 아니다.
+
 ## 단일 검색 실험 시도 — 2026-11-10 KST
 
 - 별도 재확인: 기본 샌드박스에서 문서의 `uv run --locked pywrangler dev` 명령은 uv 캐시 잠금 파일 접근 거부로 시작하지 못했다. 권한을 허용해 같은 로컬 서버를 실행했을 때 Wrangler 4.159.0이 준비됐고 import 전용 요청은 HTTP 200, import 성공, 529ms(벽시계)를 반환했다. 이 결과가 위 별도 시도의 종료 코드 2 원인을 입증하지는 않으며 검색·네트워크 호환성을 보여주지도 않는다.

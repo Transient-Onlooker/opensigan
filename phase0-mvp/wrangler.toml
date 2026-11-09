@@ -1,0 +1,4 @@
+name = "opensigan-phase0-mvp-local"
+main = "src/worker.py"
+compatibility_date = "2026-11-09"
+compatibility_flags = ["python_workers"]
