@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.13.*"
 
 [[package]]
@@ -112,7 +112,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pycomcigan", git = "https://github.com/hegelty/pycomcigan.git?rev=e8ceaec7bad47cef946ec0174cc523f3652f42ee" }]
+requires-dist = [{ name = "pycomcigan", path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -124,10 +124,19 @@ dev = [
 [[package]]
 name = "pycomcigan"
 version = "1.4.3"
-source = { git = "https://github.com/hegelty/pycomcigan.git?rev=e8ceaec7bad47cef946ec0174cc523f3652f42ee#e8ceaec7bad47cef946ec0174cc523f3652f42ee" }
+source = { path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl" }
 dependencies = [
     { name = "pycryptodomex" },
     { name = "requests" },
+]
+wheels = [
+    { filename = "pycomcigan-1.4.3-py3-none-any.whl", hash = "sha256:9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pycryptodomex", specifier = ">=3.23,<4" },
+    { name = "requests", specifier = ">=2.32.4,<3.0.0" },
 ]
 
 [[package]]

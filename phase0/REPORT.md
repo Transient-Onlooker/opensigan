@@ -1,5 +1,10 @@
 # Phase 0 근거 및 판정 — 2026-11-10 KST
 
+## MVP 고정 커밋 wheel 후속 실험 — 2026-11-10 KST
+
+- 동일 커밋 `e8ceaec7bad47cef946ec0174cc523f3652f42ee`의 소스로 `pycomcigan 1.4.3` wheel을 빌드하고 로컬 Workers 의존성으로 지정했다. wheel SHA-256은 `9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9`다. 대상 CPython 3.14.2 Emscripten에서 의존성을 제외한 `--no-build` 해석은 wheel을 선택해 성공했다.
+- 전체 패키징은 `pycryptodomex>=3.23.0 has no usable wheels`로 실패했다. 따라서 서버 준비 전 종료 코드 1로 끝났고 학교 검색 API 호출은 **0회**였다. 재현 절차는 [phase0-mvp](../phase0-mvp/README.md)에 있고, 로컬 경로가 포함된 전체 출력은 Git에 올리지 않았다. 원격 배포는 하지 않았다. 이는 Git 소스 빌드 차단을 넘긴 뒤 발견된 별도 wheel 부재이며 원본 통신이나 CPU 호환성의 성공·실패는 여전히 미측정이다.
+
 실제 MVP의 고정 Git 커밋을 사용한 별도 Workers 실험에서는 pywrangler의 `uv pip compile --no-build`가 Git 소스 빌드를 거부하여 로컬 서버 기동 전 중단됐다. 원본 검색은 호출되지 않았다. 상세와 재현 파일은 [phase0-mvp](../phase0-mvp/README.md)에 있다. 이는 패키징 장애이며, wheel로 준비했을 때의 네트워크·CPU 호환성 판정은 아니다.
 
 ## 단일 검색 실험 시도 — 2026-11-10 KST

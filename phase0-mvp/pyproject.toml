@@ -2,7 +2,10 @@
 name = "opensigan-phase0-mvp"
 version = "0.0.1"
 requires-python = ">=3.13,<3.14"
-dependencies = ["pycomcigan @ git+https://github.com/hegelty/pycomcigan.git@e8ceaec7bad47cef946ec0174cc523f3652f42ee"]
+dependencies = ["pycomcigan==1.4.3"]
+
+[tool.uv.sources]
+pycomcigan = { path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl" }
 
 [dependency-groups]
 dev = ["workers-py==1.17.9", "workers-runtime-sdk==1.9.6", "uv==0.13.4"]
