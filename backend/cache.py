@@ -58,9 +58,11 @@ class Cache:
             with self.guard:
                 if len(cached) <= self.max_bytes:
                     self._store(key, cached, time.monotonic(), 0)
-                elif key in self.entries:
-                    old = self.entries.pop(key)
-                    self.bytes_used -= len(old[0]) if old[0] is not None else 0
+                else:
+                    old = self.entries.get(key)
+                    if old and old[0] is not None:
+                        self._store(key, old[0], old[1], time.monotonic() + self.retry_delay)
+                        return self._stale(old[0])
             return json.loads(cached)
 
     @staticmethod
