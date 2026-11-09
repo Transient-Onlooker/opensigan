@@ -1,5 +1,7 @@
 # MVP 고정 버전의 Workers 로컬 실험
 
+> 최신 결과: 초기 실패 이후 자체 빌드 wheel로 로컬 Workers import·AES와 검색 API 1회가 성공했다. 최신 근거와 재현 명령은 [COMPATIBILITY.md](COMPATIBILITY.md)의 추가 실험을 따른다. 아래의 초기 실패와 기존 실행 설명은 당시 기록이다.
+
 2026-11-10에 MVP와 같은 `pycomcigan` Git 커밋 `e8ceaec7bad47cef946ec0174cc523f3652f42ee`의 소스로 wheel을 빌드했다. 캐시 체크아웃의 `git rev-parse HEAD`로 커밋을 확인했고 추적 파일 변경은 없었다. 빌드 결과는 `wheelhouse/pycomcigan-1.4.3-py3-none-any.whl`, SHA-256은 `9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9`다. `pyproject.toml`의 `tool.uv.sources`가 이 로컬 파일을 가리키며 `uv.lock`에도 경로와 해시가 기록된다.
 
 이전 Git 직접 참조는 `uv pip compile --no-build`의 소스 빌드 금지에 걸렸다. wheel 적용 후 같은 CPython 3.14.2 Emscripten 대상에서 `--no-deps --no-build` 해석은 wheel을 선택하고 성공했다. 전체 로컬 Workers 준비는 후속 의존성 `pycryptodomex>=3.23`에 해당 대상의 사용 가능한 wheel이 없어 실패했다. 서버 종료 코드는 1이고 검색 API 호출은 **0회**다. 실행 원문 `run.log`는 로컬 경로가 포함되어 Git에 올리지 않는다. 이는 현 시점 패키지 해석 결과이며 네트워크나 CPU 호환성 판정은 아니다. 원격 배포는 하지 않았다.

@@ -11,6 +11,15 @@ class Default(WorkerEntrypoint):
         global attempted
         started = time.perf_counter()
         try:
+            if request.url.endswith("/import-check"):
+                from Cryptodome.Cipher import AES
+                from pycomcigan import get_school_code
+
+                key = bytes.fromhex("000102030405060708090a0b0c0d0e0f")
+                plain = bytes.fromhex("00112233445566778899aabbccddeeff")
+                assert AES.new(key, AES.MODE_ECB).encrypt(plain).hex() == "69c4e0d86a7b0430d8cdb78070b4c55a"
+                return Response(json.dumps({"import_ok": callable(get_school_code), "aes_ok": True}),
+                                headers={"content-type": "application/json"})
             if attempted:
                 raise RuntimeError("single attempt already used")
             attempted = True

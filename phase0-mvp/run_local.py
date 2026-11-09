@@ -61,14 +61,25 @@ try:
         events.append("server_exited" if server.poll() is not None else "startup_timeout")
     else:
         started = time.monotonic()
+        watchdog = threading.Timer(45, lambda: subprocess.run(
+            ["taskkill", "/PID", str(server.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10))
+        watchdog.start()
         try:
-            with urllib.request.urlopen("http://127.0.0.1:18787/", timeout=45) as response:
+            path = "/import-check" if "--import-only" in sys.argv else "/"
+            with urllib.request.urlopen("http://127.0.0.1:18787" + path, timeout=45) as response:
                 payload = json.load(response)
-            result = {key: payload[key] for key in ("success", "count", "elapsed_ms", "error_type")}
+            if path == "/import-check":
+                result = {"success": payload.get("import_ok") is True and payload.get("aes_ok") is True,
+                          "import_ok": payload.get("import_ok"), "aes_ok": payload.get("aes_ok")}
+            else:
+                result = {key: payload[key] for key in ("success", "count", "elapsed_ms", "error_type")}
         except Exception as exc:
             result = {"success": False, "count": None,
                       "elapsed_ms": round((time.monotonic() - started) * 1000, 3),
                       "error_type": type(exc).__name__}
+        finally:
+            watchdog.cancel()
         if not result["success"]:
             events.append("request_error:" + str(result["error_type"]))
 except Exception as exc:

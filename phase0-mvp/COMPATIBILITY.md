@@ -1,5 +1,37 @@
 # Phase 0: 고정 upstream의 Workers 패키징 판정
 
+## 추가 실험: 로컬 PyEmscripten wheel — 2026-11-10
+
+제공된 `pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl`을 `wheelhouse/`에 복사했다. SHA-256은 `f2c5fdc9fe8ba8ea5b827dc04fe06ad2d47e96ecbba58494bb6d5794439602b5`다. 자체 빌드 실험 산출물로 Git 무시 대상이다. 소스 sdist SHA-256은 `e4dbc29e2575365d15e272f769329106277649aea081e2119cf43d66950f8f8f`다. 제공자의 별도 Pyodide AES 성공 보고와 별개로 이번에 Workers 내부 AES를 검사했다.
+
+`[tool.uv] find-links`로 wheelhouse를 검색한다. Pyodide 3.14.2 대상 pywrangler 해석·설치가 성공했고, 무시 대상 `pylock.toml`에 해당 로컬 wheel과 위 SHA-256이 기록됐다. 이 lock의 절대 경로는 다른 컴퓨터에서 재생성해야 한다. Windows 개발 환경용 `uv.lock`의 `uv lock --check --offline`도 통과했다. 별도의 오프라인 전체 해석은 wheel 문제를 넘은 뒤 캐시에 없는 requests 및 charset-normalizer 때문에 실패했으나, 온라인 의존성 준비를 사용하는 로컬 실행은 성공했다.
+
+| 검증 | 결과 |
+|---|---|
+| `run_local.py --import-only` | 로컬 Workers에서 `get_school_code`·`Cryptodome.Cipher.AES` import 및 AES-128 ECB 알려진 정답 벡터 통과. 로컬 GET 200, Wrangler 기록 714ms. 원본 호출 0회. |
+| `run_local.py` | 별도 로컬 서버에서 `get_school_code("서울")` 1회 성공, 10건, Worker 벽시계 755ms, 오류 없음. 로컬 GET 200, Wrangler 기록 788ms. 재시도 없음. |
+| 종료 | 두 실행의 서버 종료 코드 1은 정리 시 프로세스 트리를 종료한 결과다. 검색 후 18787 포트에 LISTENING은 없고 TIME_WAIT만 관찰했다. |
+
+API 한 번은 원본 HTTP 요청 한 번과 같지 않다. 라이브러리는 서비스 페이지와 검색을 순차적으로 요청하며 리디렉션이 있으면 교환이 더 늘 수 있다. 실제 HTTP 횟수는 계측하지 않았다. 개별 requests timeout은 30초, runner의 서버 준비 제한은 60초이며 로컬 요청은 소켓 timeout 45초와 45초 후 프로세스 트리 종료 watchdog을 사용한다. 종료 명령 실패까지 방지한다는 보장은 없다. 워커 전역 플래그는 인스턴스 내 재호출만 막으므로 새 서버 실행으로 다시 요청하지 말 것. 403/429 구분은 이번 성공 사례에서 검증되지 않았다.
+
+재현은 Windows PowerShell에서 `phase0-mvp`를 작업 디렉터리로 한다. 제공된 파일과 다운로드 가능한 도구·의존성이 필요하다. 마지막 명령은 실제 원본을 다시 호출하므로 **새로운 호출이 별도로 허용될 때만** 한 번 실행한다. import-only는 원본에 접근하지 않는다. 로그와 결과 JSON은 덮어쓰며 Git에서 무시된다.
+
+```powershell
+Get-FileHash -Algorithm SHA256 "$env:LOCALAPPDATA\Temp\opensigan-pyodide-probe\wheelhouse\pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl"
+Copy-Item -LiteralPath "$env:LOCALAPPDATA\Temp\opensigan-pyodide-probe\wheelhouse\pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl" -Destination .\wheelhouse\
+Get-FileHash -Algorithm SHA256 .\wheelhouse\pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl
+uv sync --locked
+.\.venv\Scripts\python.exe run_local.py --import-only
+# 별도 원본 호출 허용 시에만, 재시도 없이 1회:
+.\.venv\Scripts\python.exe run_local.py
+```
+
+성공은 로컬 Workers 단일 표본이다. 실제 Cloudflare 배포, CPU·메모리, 반복 안정성, 시간표·변경 표시, 오류·타임아웃 처리 및 운영 적합성은 검증하지 않았다. 원격 배포나 원본 데이터 저장은 하지 않았다.
+
+---
+
+이하 내용은 wheel 통합 전의 조사 및 당시 실패 기록이다.
+
 2026-11-10 로컬 조사. 판정은 **보류**다. 원본을 수정하지 않은 wheel로 Git 소스 빌드 장애는 통과했지만, MVP에 필요한 전체 의존성을 설치하거나 Workers에서 해당 버전을 실행하는 데는 아직 성공하지 못했다. 별도 배포나 원본 서버 요청은 이번 조사에서 하지 않았다.
 
 ## 범위와 결과

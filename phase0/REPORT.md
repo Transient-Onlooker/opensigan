@@ -1,5 +1,7 @@
 # Phase 0 근거 및 판정 — 2026-11-10 KST
 
+> 추가 결과: MVP 고정 1.4.3과 자체 빌드 PyEmscripten `pycryptodomex` wheel을 사용한 로컬 Workers에서 의존성 해석, import 및 AES 정답 검사에 성공했고, 별도 단회 `get_school_code` 호출도 성공했다(10건, Worker 벽시계 755ms). API 호출 내부의 실제 HTTP 횟수는 계측하지 않았다. 원격 배포, 반복 호출 및 실제 Cloudflare 자원 검증은 하지 않았다. wheel 해시, 제한, 오프라인 실패와 재현 명령은 [MVP 호환성 기록](../phase0-mvp/COMPATIBILITY.md)의 추가 실험 참조. 이하 기존 판정과 실패 기록은 당시 관찰이다.
+
 ## MVP 고정 커밋 wheel 후속 실험 — 2026-11-10 KST
 
 - 동일 커밋 `e8ceaec7bad47cef946ec0174cc523f3652f42ee`의 소스로 `pycomcigan 1.4.3` wheel을 빌드하고 로컬 Workers 의존성으로 지정했다. wheel SHA-256은 `9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9`다. 대상 CPython 3.14.2 Emscripten에서 의존성을 제외한 `--no-build` 해석은 wheel을 선택해 성공했다.

@@ -4,6 +4,9 @@ version = "0.0.1"
 requires-python = ">=3.13,<3.14"
 dependencies = ["pycomcigan==1.4.3"]
 
+[tool.uv]
+find-links = ["wheelhouse"]
+
 [tool.uv.sources]
 pycomcigan = { path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl" }
 

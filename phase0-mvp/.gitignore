@@ -6,3 +6,4 @@ __pycache__/
 pylock.toml
 run-result.json
 run.log
+wheelhouse/pycryptodomex-*.whl
