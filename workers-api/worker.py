@@ -134,7 +134,12 @@ class Default(WorkerEntrypoint):
         for attempt in range(CACHE_CONTENTION_RETRIES + 1):
             if attempt:
                 await asyncio.sleep(CACHE_CONTENTION_DELAY_SECONDS)
-                entry = await cache.read(key)
+                try:
+                    entry = await cache.read(key)
+                except Exception:
+                    if stale is not None:
+                        return {**stale, "stale": True}
+                    raise
                 now = int(time.time())
                 if entry and entry.fresh(now):
                     return entry.value
@@ -147,7 +152,15 @@ class Default(WorkerEntrypoint):
                     return {**stale, "stale": True}
                 raise RuntimeError("cache refresh unavailable")
             token = secrets.token_urlsafe(32)
-            if await cache.acquire_refresh(key, token, origin=origin, now=now, lease_seconds=120):
+            try:
+                acquired = await cache.acquire_refresh(
+                    key, token, origin=origin, now=now, lease_seconds=120,
+                    rate_now_ms=int(time.time() * 1000))
+            except Exception:
+                if stale is not None:
+                    return {**stale, "stale": True}
+                raise
+            if acquired:
                 break
             if stale is not None:
                 return {**stale, "stale": True}

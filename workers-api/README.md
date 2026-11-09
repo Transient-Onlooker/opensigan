@@ -2,7 +2,7 @@
 
 `worker.py` imports the existing timetable functions from `../backend/timetable.py` and `NEISClient` and `School` from `../backend/neis.py`. The source of truth stays there. Wrangler 4.159.0 does not recurse into the existing Windows `backend` junction when collecting Python modules, so importing from that junction fails in the actual Worker bundle. The CPython tests alone cannot detect this: they add the repository root to `sys.path`.
 
-`stage-local.ps1` creates a new ignored `.runtime/stage-<id>` on each run and copies `worker.py`, `d1_cache.py`, `schema.sql`, and the original `backend/timetable.py` and `backend/neis.py` into ordinary directories there. It copies the already-synced `python_modules`, and links the existing `.venv-workers` and local Wrangler `node_modules`. These are build inputs, not independently maintained project source. The script checks both sync tokens against `pyproject.toml`, `pylock.toml`, and pywrangler 1.17.9. It requires already-prepared dependencies; if they are missing or stale, prepare them separately before running. The staged `pyproject.toml` retains its original relative wheel path and is not intended for a fresh sync inside the stage.
+The historical `stage-local.ps1` creates a new ignored `.runtime/stage-<id>` and copies `worker.py`, `d1_cache.py`, `schema.sql`, and the original `backend/timetable.py` and `backend/neis.py` into ordinary directories there. It copies the already-synced `python_modules`, and links the existing `.venv-workers` and local Wrangler `node_modules`. These are build inputs, not independently maintained project source. The script checks both sync tokens against `pyproject.toml`, `pylock.toml`, and pywrangler 1.17.9. It requires already-prepared dependencies; if they are missing or stale, prepare them separately before running. The staged `pyproject.toml` retains its original relative wheel path and is not intended for a fresh sync inside the stage. For a fresh dependency sync, use `stage-repro.ps1` below.
 
 The NEIS endpoints use only the Workers `env.NEIS_API_KEY` binding; the key is never returned to callers. `/api/v1/neis/schools?q=...` returns school candidates, and `/api/v1/meals?school=B10:1234567&from=YYYY-MM-DD&to=YYYY-MM-DD` requires a NEIS office/school pair and an inclusive range of at most seven days. Bad inputs return 400; a missing key or unavailable cache/upstream returns 503. Avoid putting secrets in source, client code, URLs sent to this Worker, or logs.
 
@@ -18,6 +18,10 @@ Cold requests encountering an active lease wait up to three 50 ms intervals and 
 
 Each refresh requires an explicit origin group. The Worker assigns `comcigan` to school searches and timetables, and `neis` to NEIS searches and meals. One unexpired lease per origin is allowed across different keys in the same database; a key must retain the same origin. All callers for an origin must use the same database and a current UTC clock. This is a limit on leases, not a strict limit on actual upstream calls after lease expiry, a request-rate limit, or protection against callers that bypass this cache. SQLite/mock tests do not establish distributed D1 behavior.
 
+Refresh lease acquisitions are also spaced by at least one second per origin according to the caller clock. This does not limit individual HTTP calls made inside a provider, callers bypassing the cache, or work still running after lease expiry. Deleting cache rows also deletes their rate history. In a local Worker and D1 fixture test on 2026-11-10, an immediate second school search returned 503, a cache hit returned 200, and a subsequent search succeeded after the interval. Distributed behavior remains unverified.
+
+For a database created with the previous `origin` schema, `migrations/0001_request_rate_limit.sql` adds the rate timestamp and index once, preserving existing rows. Do not apply it to a database already created with the current `schema.sql`, or apply it twice. Stop old Workers before changing schemas; this migration has only been tested with SQLite, not remote D1.
+
 On 2026-11-10, a local Python Worker and fresh local D1 using this origin schema returned a fixture school search from cache on its second request. Two concurrent distinct school searches returned one 200 and one 503; the latter succeeded on retry after the lease was released. This used one local runtime and a fixture provider, with no upstream requests; distributed D1 remains unverified.
 
 The Worker injects a synchronous `requests` transport for NEIS with the provider's timeout and redirects disabled. HTTP errors and requests exceptions become sanitized network errors; urllib3 connection-pool debug logging is suppressed because the URL contains the NEIS key. A separate local experiment reported that `urllib.request` disconnected while `requests` returned a NEIS sample with HTTP 200/INFO-000; this integration itself has only mock coverage so far.
@@ -28,7 +32,32 @@ The Worker injects a synchronous `requests` transport for NEIS with the provider
 
 The explicit `origin` column changes the schema; rerunning `schema.sql` against an old database does not add that column because the table already exists. Stop any local Worker using the old database. Follow the staging commands below to create a **new** stage, enter that stage, and run `pywrangler d1 execute opensigan-cache-local --local --file schema.sql` before starting the local Worker. The new stage has a fresh local database and an empty cache; the old stage and its data remain untouched. Use only the new stage's database with the new code, and do not mix old and new workers against the same database. This is a local prototype reset, not a migration or remote operation.
 
-## Reproduce on this Windows workspace
+## Reproduce from a new stage on this Windows workspace
+
+`stage-repro.ps1` preserves existing environments and creates a new `.runtime/repro-<id>` every time. It copies both backend modules and the two SHA-256-checked wheels, then uses empty stage-specific npm and uv caches and an empty managed Python directory. Online access to the package registries and Python distribution downloads is required. It installs Wrangler from `package-lock.json`, downloads CPython 3.14.7, and syncs the native and Pyodide environments using the Workers runtime lock seed. Pyodide 3.14.2 is selected by pywrangler for the configured compatibility date. Failures leave the stage in place for inspection. The script restores the caller's environment variables on exit.
+
+The prerequisites are Node.js 26.13.0, npm 12.0.2 and an already installed pywrangler 1.17.9 executable with uv 0.13.4 beside it. The copied `uv.lock` describes host-tool dependencies; the script checks those two executable versions but does not bootstrap or verify their installation from that lock. `pylock.seed.toml` is the Workers runtime lock: the script replaces its placeholder wheel URI in the staged copy. The staged project substitutes `find-links` for its direct local wheel source; the source project and seed remain unchanged. The generated runtime lock records the stage's own wheel paths. Keep the untracked lockfiles and wheelhouse together when copying this project; they are not yet part of a fresh Git clone.
+
+The project currently declares Python 3.13 for its host tooling while Wrangler's compatibility date selects Python 3.14 for the Worker; uv emits compatibility warnings during sync. The local Worker check below succeeded with that combination, but the discrepancy remains to be resolved before claiming a clean Python version contract.
+
+```powershell
+$stage = & .\stage-repro.ps1 -Pywrangler '..\phase0-mvp\.venv\Scripts\pywrangler.exe'
+$env:WRANGLER_SEND_METRICS = 'false'
+$env:CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = 'false'
+$env:CLOUDFLARE_INCLUDE_PROCESS_ENV = 'false'
+$env:TEMP = Join-Path $stage 'tmp'
+$env:TMP = $env:TEMP
+$env:XDG_CONFIG_HOME = Join-Path $stage 'config'
+Set-Location (Join-Path $stage 'bundle')
+& '..\node_modules\.bin\wrangler.cmd' d1 execute opensigan-cache-local --local --file schema.sql
+& '..\node_modules\.bin\wrangler.cmd' dev --local --ip 127.0.0.1 --port 18788
+```
+
+The separate `bundle` contains only the Worker files, backend modules and generated `python_modules`; running Wrangler from the stage root would also bundle the caches and virtual environment. Run Wrangler directly from `bundle`: do not run `pywrangler dev` there, because it would try to resync the intentionally isolated bundle. In a second terminal, request only `/api/v1/status`, `/api/v1/schools` without a query, and `/api/v1/timetable?school=0%3Aschool&week=bad`, then stop the server. These exercise liveness and validation without contacting providers.
+
+On 2026-11-10, the online preparation procedure downloaded dependencies into a fresh stage, initialized a fresh local D1, and started Wrangler 4.159.0. The three requests returned 200, 400 and 400 respectively. No provider request or remote deployment was made.
+
+## Historical staging procedure
 
 From `workers-api` in PowerShell, with the existing `phase0-mvp` tools, workers-api synced dependencies, and cached Wrangler 4.159.0 available:
 

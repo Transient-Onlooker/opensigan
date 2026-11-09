@@ -1,0 +1,7 @@
+{
+  "name": "opensigan-workers-api-local",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "4.159.0"
+  }
+}

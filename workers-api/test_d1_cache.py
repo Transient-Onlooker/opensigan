@@ -146,6 +146,48 @@ class D1CacheTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 10)
         self.assertEqual(sum(outcomes), 1)
 
+    async def test_origin_interval_survives_release_and_failure_at_millisecond_boundary(self):
+        cache = D1Cache(self.sqlite_db, min_origin_interval_seconds=2)
+        self.assertTrue(await cache.acquire_refresh("a", "a", origin="one", now=10, lease_seconds=5, rate_now_ms=10999))
+        self.assertTrue(await cache.store_success("a", "a", {"cached": True}, now=10, ttl_seconds=1))
+        self.assertFalse(await cache.acquire_refresh("b", "b", origin="one", now=12, lease_seconds=5, rate_now_ms=12998))
+        self.assertTrue(await cache.acquire_refresh("other", "o", origin="two", now=12, lease_seconds=5, rate_now_ms=12998))
+        self.assertTrue(await cache.acquire_refresh("b", "b", origin="one", now=12, lease_seconds=5, rate_now_ms=12999))
+        self.assertTrue(await cache.store_failure("b", "b", now=12))
+        self.assertFalse(await cache.acquire_refresh("c", "c", origin="one", now=14, lease_seconds=5, rate_now_ms=14998))
+        self.assertTrue(await cache.acquire_refresh("c", "c", origin="one", now=14, lease_seconds=5, rate_now_ms=14999))
+        self.assertEqual((await cache.read("a")).value, {"cached": True})
+
+    async def test_denied_fresh_key_does_not_consume_origin_interval(self):
+        cache = D1Cache(self.sqlite_db, min_origin_interval_seconds=2)
+        self.assertTrue(await cache.acquire_refresh("fresh", "a", origin="one", now=10, lease_seconds=5))
+        self.assertTrue(await cache.store_success("fresh", "a", {}, now=10, ttl_seconds=100))
+        self.assertFalse(await cache.acquire_refresh("fresh", "b", origin="one", now=12, lease_seconds=5))
+        self.assertTrue(await cache.acquire_refresh("cold", "c", origin="one", now=12, lease_seconds=5))
+
+    async def test_concurrent_fast_refreshes_cannot_bypass_origin_interval(self):
+        barrier = threading.Barrier(8)
+        outcomes = []
+
+        async def refresh(index):
+            key = f"fast-{index}"
+            won = await self.cache.acquire_refresh(key, key, origin="test", now=100, lease_seconds=5)
+            if won:
+                await self.cache.store_success(key, key, {}, now=100, ttl_seconds=5)
+            return won
+
+        def contend(index):
+            barrier.wait()
+            outcomes.append(asyncio.run(refresh(index)))
+
+        threads = [threading.Thread(target=contend, args=(i,)) for i in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(outcomes), 8)
+        self.assertEqual(sum(outcomes), 1)
+
     async def test_origin_is_required_and_a_key_cannot_change_origins(self):
         with self.assertRaises(ValueError):
             await self.cache.acquire_refresh("k", "a", origin=" ", now=1, lease_seconds=5)

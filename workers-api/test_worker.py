@@ -128,12 +128,12 @@ class ContractTest(unittest.TestCase):
     def test_search_and_timetable_contracts(self):
         today = datetime.now(timezone(timedelta(hours=9))).date()
         week = (today - timedelta(days=today.weekday())).isoformat()
-        with patch.object(worker, "search_schools", return_value=[{"id": "1:school", "name": "school", "region": "r"}]) as search:
+        with patch.object(worker.time, "time", return_value=1000), patch.object(worker, "search_schools", return_value=[{"id": "1:school", "name": "school", "region": "r"}]) as search:
             status, body = self.request("/api/v1/schools?q=school")
             self.assertEqual((status, body["stale"], body["schools"][0]["id"]), (200, False, "1:school"))
             search.assert_called_once_with("school")
         expected = {"schoolId": "1:school", "weekStart": week, "records": [], "sourceUpdatedAt": None, "fetchedAt": "x", "stale": False}
-        with patch.object(worker, "fetch_timetable", return_value=expected) as fetch:
+        with patch.object(worker.time, "time", return_value=1001), patch.object(worker, "fetch_timetable", return_value=expected) as fetch:
             self.assertEqual(self.request("/api/v1/timetable?school=1%3Aschool&week=" + week), (200, expected))
             fetch.assert_called_once_with("1:school", week)
 
@@ -147,12 +147,13 @@ class ContractTest(unittest.TestCase):
             self.assertEqual(self.request("/timetable?school=1%3Aschool&week=" + week), (503, {"error": "upstream unavailable"}))
 
     def test_neis_contracts(self):
-        with patch.object(worker, "NEISClient") as factory:
+        with patch.object(worker.time, "time", return_value=1000) as clock, patch.object(worker, "NEISClient") as factory:
             client = factory.return_value
             client.search_schools.return_value = [worker.School("B10", "1234567", "school", "high", "address")]
             client.get_meals.return_value = [types.SimpleNamespace(date="2026-11-10", meal_type="lunch", menu="rice(1)<BR />soup(2)")]
             self.assertEqual(self.request("/api/v1/neis/schools?q=school", key="mock-key"),
                 (200, {"schools": [{"id": "B10:1234567", "name": "school", "region": "high", "address": "address"}], "stale": False}))
+            clock.return_value = 1001
             self.assertEqual(self.request("/api/v1/meals?school=B10%3A1234567&from=2026-11-09&to=2026-11-15", key="mock-key"),
                 (200, {"meals": [{"date": "2026-11-10", "type": "lunch", "dishes": ["rice(1)", "soup(2)"]}], "stale": False}))
             factory.assert_called_with("mock-key", transport=worker.neis_transport)
@@ -211,19 +212,48 @@ class ContractTest(unittest.TestCase):
                 self.assertEqual(self.request("/schools?q=cold"),
                                  (503, {"error": "upstream unavailable"}))
 
+    def test_rate_limit_serves_stale_and_rejects_cold_then_allows_at_boundary(self):
+        with patch.object(worker.time, "time", return_value=1000) as clock, \
+             patch.object(worker, "search_schools", return_value=[{"name": "x"}]) as search, \
+             patch.object(worker.asyncio, "sleep", new=AsyncMock()):
+            self.assertEqual(self.request("/schools?q=stale")[0], 200)
+            clock.return_value = 2800
+            self.assertEqual(self.request("/schools?q=other")[0], 200)
+            self.assertEqual(self.request("/schools?q=stale"),
+                             (200, {"schools": [{"name": "x"}], "stale": True}))
+            self.assertEqual(self.request("/schools?q=cold"), (503, {"error": "upstream unavailable"}))
+            self.assertEqual(search.call_count, 2)
+            clock.return_value = 2801
+            self.assertEqual(self.request("/schools?q=cold")[0], 200)
+            self.assertEqual(search.call_count, 3)
+
+    def test_acquire_error_serves_stale_but_cold_fails_closed(self):
+        with patch.object(worker.time, "time", return_value=1000) as clock, \
+             patch.object(worker, "search_schools", return_value=[{"name": "x"}]) as search:
+            self.assertEqual(self.request("/schools?q=stale")[0], 200)
+            clock.return_value = 2800
+            with patch.object(worker.D1Cache, "acquire_refresh", side_effect=RuntimeError("database error")):
+                self.assertEqual(self.request("/schools?q=stale"),
+                                 (200, {"schools": [{"name": "x"}], "stale": True}))
+                self.assertEqual(self.request("/schools?q=cold"), (503, {"error": "upstream unavailable"}))
+            search.assert_called_once()
+
     def test_mock_d1_and_collision_safe_keys(self):
         schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
         self.db = MockD1(schema, str(Path(self.temp.name) / "mock.sqlite"))
-        with patch.object(worker, "search_schools", return_value=[]) as search:
+        with patch.object(worker.time, "time", return_value=1000) as clock, patch.object(worker, "search_schools", return_value=[]) as search:
             self.request("/schools?q=a%3Ab")
+            clock.return_value = 1001
             self.request("/schools?q=a")
             self.request("/schools?q=a%3Ab")
             self.assertEqual(search.call_count, 2)
         self.assertTrue(any("RETURNING" in call[0] for call in self.db.calls))
         handler = worker.Default()
         handler.env = types.SimpleNamespace(DB=self.db)
-        self.assertEqual(asyncio.run(handler.cached(["a:b", "c"], lambda: {"n": 1}, origin="test")), {"n": 1})
-        self.assertEqual(asyncio.run(handler.cached(["a", "b:c"], lambda: {"n": 2}, origin="test")), {"n": 2})
+        with patch.object(worker.time, "time", return_value=1000) as clock:
+            self.assertEqual(asyncio.run(handler.cached(["a:b", "c"], lambda: {"n": 1}, origin="test")), {"n": 1})
+            clock.return_value = 1001
+            self.assertEqual(asyncio.run(handler.cached(["a", "b:c"], lambda: {"n": 2}, origin="test")), {"n": 2})
         tokens = [params[2] for sql, params, _ in self.db.calls if "INSERT INTO d1_cache" in sql]
         self.assertEqual(len(tokens), len(set(tokens)))
 
@@ -313,7 +343,7 @@ class ContractTest(unittest.TestCase):
             ])
             search.assert_called_once_with("shared")
 
-    def test_cold_different_key_retries_after_origin_lock_released(self):
+    def test_cold_different_key_respects_interval_after_origin_lock_released(self):
         started, release, waiting, resume = (threading.Event() for _ in range(4))
         responses = {}
 
@@ -328,7 +358,8 @@ class ContractTest(unittest.TestCase):
             waiting.set()
             await asyncio.to_thread(resume.wait, 5)
 
-        with patch.object(worker, "search_schools", side_effect=search) as provider, \
+        with patch.object(worker.time, "time", return_value=1000), \
+             patch.object(worker, "search_schools", side_effect=search) as provider, \
              patch.object(worker.asyncio, "sleep", new=observed_sleep):
             owner = threading.Thread(target=lambda: responses.update(owner=self.request("/schools?q=owner")))
             owner.start()
@@ -348,9 +379,8 @@ class ContractTest(unittest.TestCase):
                 owner.join(5)
             self.assertFalse(contender.is_alive())
             self.assertEqual(responses["owner"][0], 200)
-            self.assertEqual(responses["contender"],
-                             (200, {"schools": [{"name": "contender"}], "stale": False}))
-            self.assertEqual(provider.call_count, 2)
+            self.assertEqual(responses["contender"], (503, {"error": "upstream unavailable"}))
+            self.assertEqual(provider.call_count, 1)
 
     def test_cold_contender_stops_after_bounded_retries(self):
         started, release = threading.Event(), threading.Event()

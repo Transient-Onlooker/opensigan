@@ -12,10 +12,13 @@ Use a new random owner token for every attempt and obtain UTC time immediately
 before each operation; clock skew or delayed SQL execution can affect expiry.
 When no stale value exists, callers choose their own unavailable/backoff response.
 
-Callers pass an explicit origin group with every refresh lease. An origin slot
-limits unexpired leases in this database, not actual upstream work after
-expiry, requests bypassing this cache, or request rate. All callers sharing
-the origin must use the same database and current UTC clock.
+Callers pass an explicit origin group with every refresh lease. The single
+statement limits unexpired leases and spaces lease acquisitions per origin.
+It cannot limit calls bypassing this database, retries inside a loader, or
+work continuing after lease expiry. All callers must share this database,
+interval policy and a current UTC clock. Deleting cache rows also removes
+their rate history. Caller clock skew and delays between acquiring a lease
+and starting upstream work can affect actual request spacing.
 """
 
 from __future__ import annotations
@@ -49,12 +52,15 @@ class D1Cache:
     """D1 API compatible cache. Timestamps are Unix seconds from the caller."""
 
     def __init__(self, database: Any, *, base_backoff_seconds: int = 5,
-                 max_backoff_seconds: int = 300):
+                 max_backoff_seconds: int = 300, min_origin_interval_seconds: int = 1):
         if base_backoff_seconds < 1 or max_backoff_seconds < base_backoff_seconds:
             raise ValueError("invalid backoff bounds")
+        if min_origin_interval_seconds < 1:
+            raise ValueError("min_origin_interval_seconds must be positive")
         self.database = database
         self.base_backoff_seconds = base_backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
+        self.min_origin_interval_seconds = min_origin_interval_seconds
 
     async def _first(self, sql: str, *params: Any) -> Any:
         statement = self.database.prepare(sql).bind(*params)
@@ -75,26 +81,36 @@ class D1Cache:
                           int(row["failures"]))
 
     async def acquire_refresh(self, key: str, owner_token: str, *, origin: str, now: int,
-                              lease_seconds: int) -> bool:
+                              lease_seconds: int, rate_now_ms: int | None = None) -> bool:
         if not key or not owner_token or not isinstance(origin, str) or not origin.strip() or lease_seconds < 1:
             raise ValueError("key, owner token, origin, and positive lease are required")
+        if rate_now_ms is None:
+            rate_now_ms = now * 1000
         row = await self._first(
             """INSERT INTO d1_cache
-                   (cache_key, origin, payload, expires_at, refresh_owner, lease_until, failures, retry_after)
-               SELECT ?, ?, NULL, 0, ?, ?, 0, NULL
+                   (cache_key, origin, payload, expires_at, refresh_owner, lease_until, failures, retry_after, last_refresh_at)
+               SELECT ?, ?, NULL, 0, ?, ?, 0, NULL, ?
                WHERE NOT EXISTS (
                    SELECT 1 FROM d1_cache
                    WHERE origin = ? AND refresh_owner IS NOT NULL AND lease_until > ?
                )
+               AND NOT EXISTS (
+                   SELECT 1 FROM d1_cache
+                   WHERE origin = ? AND last_refresh_at > ? - ?
+               )
                ON CONFLICT(cache_key) DO UPDATE SET
                    refresh_owner = excluded.refresh_owner,
-                   lease_until = excluded.lease_until
+                   lease_until = excluded.lease_until,
+                   last_refresh_at = excluded.last_refresh_at
                WHERE d1_cache.origin = excluded.origin
                  AND (d1_cache.refresh_owner IS NULL OR d1_cache.lease_until <= ?)
                  AND (d1_cache.retry_after IS NULL OR d1_cache.retry_after <= ?)
                  AND d1_cache.expires_at <= ?
+                 AND (d1_cache.last_refresh_at IS NULL OR d1_cache.last_refresh_at <= ? - ?)
                RETURNING refresh_owner""",
-            key, origin, owner_token, now + lease_seconds, origin, now, now, now, now,
+            key, origin, owner_token, now + lease_seconds, rate_now_ms, origin, now,
+            origin, rate_now_ms, self.min_origin_interval_seconds * 1000,
+            now, now, now, rate_now_ms, self.min_origin_interval_seconds * 1000,
         )
         return row is not None and row.get("refresh_owner") == owner_token
 
