@@ -199,6 +199,18 @@ class ContractTest(unittest.TestCase):
             self.assertEqual(self.request("/schools?q=x")[0], 503)
             search.assert_not_called()
 
+    def test_failure_recording_error_still_serves_existing_stale_data(self):
+        with patch.object(worker.time, "time", return_value=1000) as clock, \
+             patch.object(worker, "search_schools", return_value=[{"name": "x"}]) as search:
+            self.assertFalse(self.request("/schools?q=x")[1]["stale"])
+            clock.return_value = 2800
+            search.side_effect = RuntimeError("upstream failure")
+            with patch.object(worker.D1Cache, "store_failure", side_effect=RuntimeError("database failure")):
+                self.assertEqual(self.request("/schools?q=x"),
+                                 (200, {"schools": [{"name": "x"}], "stale": True}))
+                self.assertEqual(self.request("/schools?q=cold"),
+                                 (503, {"error": "upstream unavailable"}))
+
     def test_mock_d1_and_collision_safe_keys(self):
         schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
         self.db = MockD1(schema, str(Path(self.temp.name) / "mock.sqlite"))

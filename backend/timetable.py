@@ -55,10 +55,12 @@ def fetch_timetable(school_id, week):
     if not isinstance(data, (list, tuple)) or len(data) > 20:
         raise RuntimeError("시간표 응답 형식이 올바르지 않습니다")
     for grade, classes in enumerate(data):
-        if not isinstance(classes, (list, tuple)) or len(classes) > 100:
+        if (not isinstance(classes, (list, tuple)) or len(classes) > 100
+                or (grade == 0 and classes)):
             raise RuntimeError("시간표 응답 형식이 올바르지 않습니다")
         for class_number, days in enumerate(classes):
-            if not isinstance(days, (list, tuple)) or len(days) > 8:
+            if (not isinstance(days, (list, tuple)) or len(days) > 8
+                    or (class_number == 0 and days)):
                 raise RuntimeError("시간표 응답 형식이 올바르지 않습니다")
             for day, lessons in enumerate(days):
                 if day < 1 or day > 5:
@@ -70,7 +72,7 @@ def fetch_timetable(school_id, week):
                             or not isinstance(getattr(lesson, "teacher", None), str)
                             or not isinstance(getattr(lesson, "replaced", None), bool)
                             or not isinstance(getattr(lesson, "period", None), int)
-                            or isinstance(lesson.period, bool) or lesson.period < 0):
+                            or isinstance(lesson.period, bool) or lesson.period < 1):
                         raise RuntimeError("시간표 응답 형식이 올바르지 않습니다")
                     if not lesson.subject and not lesson.teacher and not lesson.replaced:
                         continue

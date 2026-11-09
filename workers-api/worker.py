@@ -140,7 +140,11 @@ class Default(WorkerEntrypoint):
                 raise RuntimeError("cache lease lost")
             return value
         except Exception as exc:
-            await cache.store_failure(key, token, now=int(time.time()))
+            try:
+                await cache.store_failure(key, token, now=int(time.time()))
+            except Exception:
+                if stale is None:
+                    raise RuntimeError("cache failure recording unavailable") from None
             if stale is not None:
                 return {**stale, "stale": True}
             raise RuntimeError("cache refresh failed") from exc

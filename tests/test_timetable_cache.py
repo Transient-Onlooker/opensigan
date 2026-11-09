@@ -214,6 +214,27 @@ class TimetableTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.fetch_with("2026-11-09", table)
 
+    def test_invalid_source_indexes_do_not_replace_cached_timetable(self):
+        lesson = FakeLesson(1, "Math", "Kim")
+        good = type("Table", (), {
+            "timetable": [[], [[], [[], [lesson]]]], "update_date": None,
+        })()
+        malformed = [
+            [[[[], [lesson]]]],
+            [[], [[[], [lesson]]]],
+            [[], [[], [[], [FakeLesson(0, "Math", "Kim")]]]],
+        ]
+        for data in malformed:
+            with self.subTest(data=data):
+                cache = cache_module.Cache(ttl=0, retry_delay=0)
+                old = cache.get("week", lambda: self.fetch_with("2026-11-09", good)[0])
+                bad = type("Table", (), {"timetable": data, "update_date": None})()
+                with self.assertRaises(RuntimeError):
+                    self.fetch_with("2026-11-09", bad)
+                stale = cache.get("week", lambda: self.fetch_with("2026-11-09", bad)[0])
+                self.assertEqual(stale, {**old, "stale": True})
+                self.assertEqual(cache.get("week", lambda: self.fetch_with("2026-11-09", good)[0]), old)
+
 
 class CacheTests(unittest.TestCase):
     def test_concurrent_misses_share_one_fetch(self):
