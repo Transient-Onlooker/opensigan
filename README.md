@@ -9,9 +9,11 @@ Python 3.13과 Node.js 22 이상이 필요합니다.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r backend\requirements.txt
-$env:NEIS_API_KEY = '<NEIS 인증키>'
+$env:NEIS_API_KEY = (Get-Content -Encoding UTF8 .env | Where-Object { $_ -match '^NEIS_API_KEY=' } | Select-Object -First 1) -replace '^NEIS_API_KEY=', ''
 .\.venv\Scripts\python -m backend.app
 ```
+
+프로젝트 루트의 `.env.example`을 `.env`로 복사하고 `NEIS_API_KEY=발급받은키` 형식으로 입력합니다. `.env`는 Git에서 제외되며 위 명령으로 로컬 서버를 시작할 때 읽습니다. 운영 Workers에는 별도의 서버 측 Secret을 설정해야 합니다.
 
 다른 터미널에서 다음을 실행합니다.
 
