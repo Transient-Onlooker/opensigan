@@ -29,8 +29,22 @@ def neis_transport(url, timeout):
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
+        origin = request.headers.get("Origin")
+        allowed_origin = getattr(self.env, "CORS_ALLOWED_ORIGIN", None)
+        cors_origin = origin if origin and origin == allowed_origin else None
+        if request.method == "OPTIONS":
+            if cors_origin is None:
+                return self.respond(403, {"error": "origin not allowed"})
+            return Response(None, status=204, headers={
+                "access-control-allow-origin": cors_origin,
+                "access-control-allow-methods": "GET, OPTIONS",
+                "access-control-allow-headers": "Accept",
+                "access-control-max-age": "86400",
+                "vary": "Origin",
+                "cache-control": "no-store",
+            })
         if request.method != "GET":
-            return self.respond(405, {"error": "method not allowed"})
+            return self.respond(405, {"error": "method not allowed"}, cors_origin)
         parts = urlsplit(request.url)
         query = parse_qs(parts.query, keep_blank_values=True)
         try:
@@ -85,13 +99,13 @@ class Default(WorkerEntrypoint):
                     for meal in meals], "stale": False}
                 result = await self.cached(["meals", school_id, start_text, end_text], load_meals)
             else:
-                return self.respond(404, {"error": "not found"})
+                return self.respond(404, {"error": "not found"}, cors_origin)
         except ValueError as exc:
-            return self.respond(400, {"error": str(exc)})
+            return self.respond(400, {"error": str(exc)}, cors_origin)
         except Exception:
             # Upstream exceptions can contain request data.
-            return self.respond(503, {"error": "upstream unavailable"})
-        return self.respond(200, result)
+            return self.respond(503, {"error": "upstream unavailable"}, cors_origin)
+        return self.respond(200, result, cors_origin)
 
     async def cached(self, components, load, check=None):
         try:
@@ -136,6 +150,13 @@ class Default(WorkerEntrypoint):
         return values[0].strip()
 
     @staticmethod
-    def respond(status, result):
+    def respond(status, result, allowed_origin=None):
+        headers = {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
+            "vary": "Origin",
+        }
+        if allowed_origin:
+            headers["access-control-allow-origin"] = allowed_origin
         return Response(json.dumps(result, ensure_ascii=False, allow_nan=False), status=status,
-                        headers={"content-type": "application/json; charset=utf-8", "cache-control": "no-store"})
+                        headers=headers)

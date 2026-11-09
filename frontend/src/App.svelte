@@ -38,7 +38,7 @@
   $: sortedMeals = [...meals].sort((a, b) => a.date.localeCompare(b.date));
 
   function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) { return new Intl.DateTimeFormat('ko-KR', { ...options, timeZone: 'UTC' }).format(new Date(`${key}T00:00:00Z`)); }
-  function timeText(value: string | null | undefined) { if (!value || Number.isNaN(Date.parse(value))) return '정보 없음'; return new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
+  function timeText(value: string | null | undefined) { if (!value || Number.isNaN(Date.parse(value))) return '정보 없음'; return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
   function errorText(error: unknown) { return error instanceof Error ? error.message : '요청을 완료하지 못했어요.'; }
   function record(date: string, period: number): TimetableRecord | undefined { return filtered.find((r) => r.date === date && Number(r.period) === period); }
   function neisKey(id: string) { return `opensigan-neis:${id}`; }

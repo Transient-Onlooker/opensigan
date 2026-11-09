@@ -37,15 +37,84 @@ class ContractTest(unittest.TestCase):
         schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
         self.db = SQLiteD1(schema, str(Path(self.temp.name) / "cache.sqlite"))
 
-    def request(self, path, method="GET", key=None, db=True):
-        request = types.SimpleNamespace(url="http://localhost" + path, method=method)
+    def request(self, path, method="GET", key=None, db=True, origin=None, allowed_origin=None):
+        headers = {"Origin": origin} if origin is not None else {}
+        request = types.SimpleNamespace(url="http://localhost" + path, method=method, headers=headers)
         handler = worker.Default()
         bindings = {"NEIS_API_KEY": key} if key is not None else {}
+        if allowed_origin is not None:
+            bindings["CORS_ALLOWED_ORIGIN"] = allowed_origin
         if db:
             bindings["DB"] = self.db
         handler.env = types.SimpleNamespace(**bindings)
         response = asyncio.run(handler.fetch(request))
-        return response.status, json.loads(response.body)
+        return response.status, json.loads(response.body) if response.body else None
+
+    def test_cors_configured_origin_success_error_and_cache_safety(self):
+        allowed = "https://opensigan.github.io"
+        status, _ = self.request("/status", origin=allowed, allowed_origin=allowed)
+        self.assertEqual(status, 200)
+        handler = worker.Default()
+        handler.env = types.SimpleNamespace(CORS_ALLOWED_ORIGIN=allowed)
+        success = asyncio.run(handler.fetch(types.SimpleNamespace(
+            url="http://localhost/status", method="GET", headers={"Origin": allowed})))
+        self.assertEqual(success.headers["access-control-allow-origin"], allowed)
+        response = asyncio.run(handler.fetch(types.SimpleNamespace(
+            url="http://localhost/api/v1/schools", method="GET", headers={"Origin": allowed})))
+        self.assertEqual(response.status, 400)
+        self.assertEqual(response.headers["access-control-allow-origin"], allowed)
+        self.assertEqual(response.headers["vary"], "Origin")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        failed = asyncio.run(handler.fetch(types.SimpleNamespace(
+            url="http://localhost/api/v1/schools?q=school", method="GET", headers={"Origin": allowed})))
+        self.assertEqual(failed.status, 503)
+        self.assertEqual(failed.headers["access-control-allow-origin"], allowed)
+
+        status, _ = self.request("/status", origin="https://evil.example", allowed_origin=allowed)
+        self.assertEqual(status, 200)
+        denied = asyncio.run(handler.fetch(types.SimpleNamespace(
+            url="http://localhost/status", method="GET", headers={"Origin": "https://evil.example"})))
+        self.assertNotIn("access-control-allow-origin", denied.headers)
+        self.assertEqual(denied.headers["vary"], "Origin")
+        no_config = self.request("/status", origin=allowed)[0]
+        self.assertEqual(no_config, 200)
+        handler.env = types.SimpleNamespace()
+        no_config_response = asyncio.run(handler.fetch(types.SimpleNamespace(
+            url="http://localhost/status", method="GET", headers={"Origin": allowed})))
+        self.assertNotIn("access-control-allow-origin", no_config_response.headers)
+
+        handler.env = types.SimpleNamespace(CORS_ALLOWED_ORIGIN=allowed, DB=self.db)
+        with patch.object(worker, "search_schools", return_value=[]) as search:
+            responses = [asyncio.run(handler.fetch(types.SimpleNamespace(
+                url="http://localhost/api/v1/schools?q=school", method="GET", headers={"Origin": origin})))
+                for origin in (allowed, "https://evil.example")]
+        search.assert_called_once()
+        self.assertEqual(responses[0].headers["access-control-allow-origin"], allowed)
+        self.assertNotIn("access-control-allow-origin", responses[1].headers)
+        self.assertEqual(responses[1].headers["vary"], "Origin")
+
+    def test_cors_options_matching_and_denied_origins(self):
+        allowed = "https://opensigan.github.io"
+        status, body = self.request("/status", method="OPTIONS", origin=allowed, allowed_origin=allowed)
+        self.assertEqual((status, body), (204, None))
+        handler = worker.Default()
+        handler.env = types.SimpleNamespace(CORS_ALLOWED_ORIGIN=allowed)
+        response = asyncio.run(handler.fetch(types.SimpleNamespace(
+            url="http://localhost/api/v1/status", method="OPTIONS",
+            headers={"Origin": allowed, "Access-Control-Request-Method": "GET"})))
+        self.assertIsNone(response.body)
+        self.assertEqual(response.headers["access-control-allow-origin"], allowed)
+        self.assertEqual(response.headers["access-control-allow-methods"], "GET, OPTIONS")
+        self.assertEqual(response.headers["access-control-allow-headers"], "Accept")
+        self.assertEqual(response.headers["vary"], "Origin")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        for origin, configured in (("https://evil.example", allowed), (allowed, None)):
+            handler.env = types.SimpleNamespace(CORS_ALLOWED_ORIGIN=configured)
+            response = asyncio.run(handler.fetch(types.SimpleNamespace(
+                url="http://localhost/api/v1/status", method="OPTIONS", headers={"Origin": origin})))
+            self.assertEqual(response.status, 403)
+            self.assertNotIn("access-control-allow-origin", response.headers)
+            self.assertEqual(response.headers["vary"], "Origin")
 
     def test_status_and_bad_inputs(self):
         self.assertEqual(self.request("/status"), (200, {"status": "ok", "scope": "process liveness"}))
