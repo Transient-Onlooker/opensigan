@@ -263,6 +263,48 @@ class D1CacheTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await cache.store_failure("cold", "b", now=12))
         self.assertEqual((await cache.read("cold")).retry_after, 15)
 
+    async def test_prune_preserves_rate_history_backoff_stale_and_live_leases(self):
+        now = 1_000_000
+        cache = D1Cache(self.sqlite_db, stale_retention_seconds=100, failure_retention_seconds=1)
+        rows = [
+            ("cold-old", None, 0, None, None, (now - 5) * 1000, now - 1),
+            ("stale-old", '{}', now - 100, None, None, (now - 5) * 1000, None),
+            ("stale-valid", '{}', now - 99, None, None, (now - 5) * 1000, None),
+            ("fresh", '{}', now + 1, None, None, (now - 5) * 1000, None),
+            ("live-lease", None, 0, "owner", now + 1, (now - 5) * 1000, None),
+            ("backoff", None, 0, None, None, (now - 5) * 1000, now + 1),
+            ("old-stale-backoff", '{}', now - 100, None, None, (now - 5) * 1000, now + 1),
+            ("rate-history", None, 0, None, None, now * 1000 - 1, None),
+        ]
+        with closing(self.sqlite_db.connect()) as conn:
+            conn.executemany(
+                """INSERT INTO d1_cache
+                   (cache_key, origin, payload, expires_at, refresh_owner, lease_until, last_refresh_at, retry_after)
+                   VALUES (?, 'test', ?, ?, ?, ?, ?, ?)""", rows)
+        self.assertEqual(await cache.prune(now=now, limit=1), 1)
+        self.assertEqual(await cache.prune(now=now, limit=10), 1)
+        with closing(self.sqlite_db.connect()) as conn:
+            remaining = {row[0] for row in conn.execute("SELECT cache_key FROM d1_cache")}
+        self.assertEqual(remaining, {"stale-valid", "fresh", "live-lease", "backoff",
+                                     "old-stale-backoff", "rate-history"})
+        self.assertFalse(await cache.acquire_refresh("new", "new", origin="test", now=now,
+                                                     lease_seconds=5, rate_now_ms=now * 1000))
+        self.assertTrue(await cache.store_success("live-lease", "owner", {}, now=now, ttl_seconds=5))
+        self.assertFalse(await cache.acquire_refresh("new", "new", origin="test", now=now,
+                                                     lease_seconds=5, rate_now_ms=now * 1000))
+        self.assertEqual(await cache.prune(now=now + 1), 3)
+        self.assertEqual(await cache.prune(now=now + 2), 1)
+        self.assertTrue(await cache.acquire_refresh("new", "new", origin="test", now=now + 2,
+                                                    lease_seconds=5, rate_now_ms=(now + 2) * 1000))
+
+    async def test_prune_rejects_invalid_policy_and_batch_size(self):
+        with self.assertRaises(ValueError):
+            D1Cache(self.sqlite_db, stale_retention_seconds=0)
+        with self.assertRaises(ValueError):
+            D1Cache(self.sqlite_db, failure_retention_seconds=0)
+        with self.assertRaises(ValueError):
+            await self.cache.prune(now=100, limit=0)
+
     async def test_school_week_key(self):
         self.assertEqual(d1_cache.school_week_key("123:school", "2026-11-09"),
                          'timetable:["123:school","2026-11-09"]')

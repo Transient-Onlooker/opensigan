@@ -84,7 +84,7 @@ Push-Location $stage
 try {
     npm ci --cache $stageNpmCache --ignore-scripts --no-audit --no-fund | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Pinned Wrangler dependency installation failed.' }
-    & $uv python install 3.14.7 | Out-Host
+    & $uv python install 3.14.7 --no-bin --no-registry | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Pinned CPython installation failed.' }
     & $pywranglerPath sync | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Workers Python dependency sync failed.' }

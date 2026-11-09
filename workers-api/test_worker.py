@@ -31,6 +31,7 @@ spec.loader.exec_module(worker)
 
 class ContractTest(unittest.TestCase):
     def setUp(self):
+        worker._next_cache_maintenance_at = 0.0
         temp_dir = Path.home() / "AppData" / "Local" / "Temp" if os.name == "nt" else None
         self.temp = tempfile.TemporaryDirectory(dir=temp_dir)
         self.addCleanup(self.temp.cleanup)
@@ -211,6 +212,74 @@ class ContractTest(unittest.TestCase):
                                  (200, {"schools": [{"name": "x"}], "stale": True}))
                 self.assertEqual(self.request("/schools?q=cold"),
                                  (503, {"error": "upstream unavailable"}))
+
+    def test_maintenance_failure_preserves_stale_until_retention_boundary(self):
+        with patch.object(worker.time, "time", return_value=1000) as clock, \
+             patch.object(worker, "search_schools", return_value=[{"name": "x"}]) as search:
+            self.assertEqual(self.request("/schools?q=x")[0], 200)
+            search.side_effect = RuntimeError("offline")
+            worker._next_cache_maintenance_at = 0.0
+            with patch.object(worker.D1Cache, "prune", side_effect=RuntimeError("database error")) as prune:
+                clock.return_value = 2800 + 7 * 24 * 60 * 60 - 1
+                self.assertEqual(self.request("/schools?q=x"),
+                                 (200, {"schools": [{"name": "x"}], "stale": True}))
+                self.assertEqual(prune.await_count, 1)
+                clock.return_value += 1
+                self.assertEqual(self.request("/schools?q=x"),
+                                 (503, {"error": "upstream unavailable"}))
+
+    def test_request_runs_bounded_maintenance(self):
+        with closing(self.db.connect()) as conn:
+            conn.executemany("INSERT INTO d1_cache (cache_key, origin) VALUES (?, 'test')",
+                             [(f"old-{i}",) for i in range(105)])
+        with patch.object(worker.time, "time", return_value=1000), \
+             patch.object(worker, "search_schools", return_value=[]):
+            self.assertEqual(self.request("/schools?q=x")[0], 200)
+        with closing(self.db.connect()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM d1_cache WHERE origin = 'test'").fetchone()[0], 5)
+
+    def test_maintenance_runs_at_most_once_per_interval_per_isolate(self):
+        clock = [100.0]
+        with patch.object(worker, "_monotonic", side_effect=lambda: clock[0]), \
+             patch.object(worker.time, "time", return_value=1000), \
+             patch.object(worker.D1Cache, "prune", new=AsyncMock(return_value=0)) as prune, \
+             patch.object(worker, "search_schools", return_value=[]):
+            self.request("/schools?q=one")
+            clock[0] += worker.CACHE_MAINTENANCE_INTERVAL_SECONDS - 1
+            self.request("/schools?q=two")
+            self.assertEqual(prune.await_count, 1)
+            clock[0] += 1
+            self.request("/schools?q=three")
+            self.assertEqual(prune.await_count, 2)
+
+    def test_maintenance_failure_has_a_retry_cooldown(self):
+        clock = [100.0]
+        with patch.object(worker, "_monotonic", side_effect=lambda: clock[0]), \
+             patch.object(worker.time, "time", return_value=1000), \
+             patch.object(worker.D1Cache, "prune", new=AsyncMock(side_effect=RuntimeError("db"))) as prune, \
+             patch.object(worker, "search_schools", return_value=[]):
+            self.request("/schools?q=one")
+            self.request("/schools?q=two")
+            self.assertEqual(prune.await_count, 1)
+            clock[0] += worker.CACHE_MAINTENANCE_FAILURE_RETRY_SECONDS - 1
+            self.request("/schools?q=three")
+            self.assertEqual(prune.await_count, 1)
+            clock[0] += 1
+            self.request("/schools?q=four")
+            self.assertEqual(prune.await_count, 2)
+
+    def test_maintenance_keeps_cold_failure_backoff_history(self):
+        with patch.object(worker.time, "time", return_value=1000) as clock, \
+             patch.object(worker, "search_schools", side_effect=RuntimeError("offline")) as search:
+            self.assertEqual(self.request("/schools?q=x")[0], 503)
+            clock.return_value = 1005
+            self.assertEqual(self.request("/schools?q=x")[0], 503)
+            clock.return_value = 1010
+            self.assertEqual(self.request("/schools?q=x")[0], 503)
+            self.assertEqual(search.call_count, 2)
+            with closing(self.db.connect()) as conn:
+                self.assertEqual(conn.execute("SELECT failures, retry_after FROM d1_cache").fetchone()[:],
+                                 (2, 1015))
 
     def test_rate_limit_serves_stale_and_rejects_cold_then_allows_at_boundary(self):
         with patch.object(worker.time, "time", return_value=1000) as clock, \

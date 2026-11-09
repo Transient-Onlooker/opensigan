@@ -19,6 +19,25 @@ logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
 CACHE_CONTENTION_RETRIES = 3
 CACHE_CONTENTION_DELAY_SECONDS = 0.05
+CACHE_MAINTENANCE_INTERVAL_SECONDS = 6 * 60 * 60
+CACHE_MAINTENANCE_FAILURE_RETRY_SECONDS = 5 * 60
+_monotonic = time.monotonic
+_next_cache_maintenance_at = 0.0
+
+
+def _claim_cache_maintenance() -> bool:
+    """Throttle pruning within this isolate; this is not a distributed lock."""
+    global _next_cache_maintenance_at
+    now = _monotonic()
+    if now < _next_cache_maintenance_at:
+        return False
+    _next_cache_maintenance_at = now + CACHE_MAINTENANCE_INTERVAL_SECONDS
+    return True
+
+
+def _defer_cache_maintenance_retry() -> None:
+    global _next_cache_maintenance_at
+    _next_cache_maintenance_at = _monotonic() + CACHE_MAINTENANCE_FAILURE_RETRY_SECONDS
 
 
 def neis_transport(url, timeout):
@@ -126,10 +145,18 @@ class Default(WorkerEntrypoint):
         cache = D1Cache(database)
         key = "opensigan:" + json.dumps(components, ensure_ascii=False, separators=(",", ":"))
         now = int(time.time())
+        if _claim_cache_maintenance():
+            try:
+                await cache.prune(now=now)
+            except Exception:
+                # Maintenance must not make cache reads or stale serving unavailable.
+                _defer_cache_maintenance_retry()
+                logging.warning("cache maintenance failed")
         entry = await cache.read(key)
         if entry and entry.fresh(now):
             return entry.value
-        stale = entry.value if entry and entry.has_value else None
+        stale = (entry.value if entry and entry.has_value
+                 and entry.expires_at + cache.stale_retention_seconds > now else None)
         token = None
         for attempt in range(CACHE_CONTENTION_RETRIES + 1):
             if attempt:
@@ -143,7 +170,8 @@ class Default(WorkerEntrypoint):
                 now = int(time.time())
                 if entry and entry.fresh(now):
                     return entry.value
-                stale = entry.value if entry and entry.has_value else None
+                stale = (entry.value if entry and entry.has_value
+                         and entry.expires_at + cache.stale_retention_seconds > now else None)
                 if stale is not None:
                     return {**stale, "stale": True}
             now = int(time.time())

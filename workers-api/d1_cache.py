@@ -19,6 +19,12 @@ work continuing after lease expiry. All callers must share this database,
 interval policy and a current UTC clock. Deleting cache rows also removes
 their rate history. Caller clock skew and delays between acquiring a lease
 and starting upstream work can affect actual request spacing.
+
+Maintenance retains stale payloads for seven days after expiry and cold
+failure history for one day after backoff by default. It never removes an
+active lease, active backoff, or a timestamp still needed for rate limiting.
+Pruning is opportunistic, bounded by rows deleted, and requires callers to
+use the same origin interval policy; it is not a hard storage quota.
 """
 
 from __future__ import annotations
@@ -52,15 +58,50 @@ class D1Cache:
     """D1 API compatible cache. Timestamps are Unix seconds from the caller."""
 
     def __init__(self, database: Any, *, base_backoff_seconds: int = 5,
-                 max_backoff_seconds: int = 300, min_origin_interval_seconds: int = 1):
+                 max_backoff_seconds: int = 300, min_origin_interval_seconds: int = 1,
+                 stale_retention_seconds: int = 7 * 24 * 60 * 60,
+                 failure_retention_seconds: int = 24 * 60 * 60):
         if base_backoff_seconds < 1 or max_backoff_seconds < base_backoff_seconds:
             raise ValueError("invalid backoff bounds")
         if min_origin_interval_seconds < 1:
             raise ValueError("min_origin_interval_seconds must be positive")
+        if stale_retention_seconds < 1:
+            raise ValueError("stale_retention_seconds must be positive")
+        if failure_retention_seconds < 1:
+            raise ValueError("failure_retention_seconds must be positive")
         self.database = database
         self.base_backoff_seconds = base_backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
         self.min_origin_interval_seconds = min_origin_interval_seconds
+        self.stale_retention_seconds = stale_retention_seconds
+        self.failure_retention_seconds = failure_retention_seconds
+
+    async def prune(self, *, now: int, limit: int = 100) -> int:
+        """Remove abandoned rows without disrupting usable stale data or rate limits."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        statement = self.database.prepare(
+            """DELETE FROM d1_cache
+               WHERE cache_key IN (
+                   SELECT cache_key FROM d1_cache
+                   WHERE (refresh_owner IS NULL OR lease_until <= ?)
+                     AND (last_refresh_at IS NULL OR last_refresh_at <= ?)
+                     AND (retry_after IS NULL OR retry_after <= ?)
+                     AND (
+                         (payload IS NULL AND (retry_after IS NULL OR retry_after <= ?))
+                         OR (payload IS NOT NULL AND expires_at <= ?)
+                     )
+                   LIMIT ?
+               )"""
+        ).bind(
+            now, now * 1000 - self.min_origin_interval_seconds * 1000,
+            now, now - self.failure_retention_seconds, now - self.stale_retention_seconds, limit,
+        )
+        result = await _await(statement.run())
+        if isinstance(result, dict):
+            metadata = result.get("meta", {})
+            return int(metadata.get("changes", 0))
+        return 0
 
     async def _first(self, sql: str, *params: Any) -> Any:
         statement = self.database.prepare(sql).bind(*params)
