@@ -48,7 +48,7 @@
     schoolSearchState = '검색 중…';
     schoolTimer = setTimeout(async () => {
       const controller = new AbortController(); schoolRequest = controller;
-      try { schoolResults = (await searchSchools(schoolQuery.trim(), controller.signal)).schools; schoolSearchState = schoolResults.length ? '' : '검색 결과가 없어요.'; }
+      try { const result = await searchSchools(schoolQuery.trim(), controller.signal); if (!controller.signal.aborted) { schoolResults = result.schools; schoolSearchState = schoolResults.length ? '' : '검색 결과가 없어요.'; } }
       catch (error) { if (!controller.signal.aborted) schoolSearchState = errorText(error); }
     }, 250);
   }
@@ -58,7 +58,7 @@
     neisSearchState = '검색 중…';
     neisTimer = setTimeout(async () => {
       const controller = new AbortController(); neisRequest = controller;
-      try { neisResults = (await searchNeisSchools(neisQuery.trim(), controller.signal)).schools; neisSearchState = neisResults.length ? '' : '검색 결과가 없어요.'; }
+      try { const result = await searchNeisSchools(neisQuery.trim(), controller.signal); if (!controller.signal.aborted) { neisResults = result.schools; neisSearchState = neisResults.length ? '' : '검색 결과가 없어요.'; } }
       catch (error) { if (!controller.signal.aborted) neisSearchState = errorText(error); }
     }, 250);
   }
@@ -80,7 +80,7 @@
     tableRequest?.abort(); timetable = null; tableState = ''; tableLoading = false;
     if (!school) return;
     const controller = new AbortController(); tableRequest = controller; tableLoading = true;
-    void getTimetable(school.id, week, controller.signal).then((data) => { timetable = data; })
+    void getTimetable(school.id, week, controller.signal).then((data) => { if (!controller.signal.aborted) timetable = data; })
       .catch((error) => { if (!controller.signal.aborted) tableState = errorText(error); })
       .finally(() => { if (!controller.signal.aborted) tableLoading = false; });
   }
@@ -88,7 +88,7 @@
     mealRequest?.abort(); meals = []; mealsStale = false; mealState = ''; mealLoading = false;
     if (!school || !neis) return;
     const controller = new AbortController(); mealRequest = controller; mealLoading = true;
-    void getMeals(neis.id, week, addDays(week, 6), controller.signal).then((data) => { meals = data.meals; mealsStale = data.stale; })
+    void getMeals(neis.id, week, addDays(week, 6), controller.signal).then((data) => { if (!controller.signal.aborted) { meals = data.meals; mealsStale = data.stale; } })
       .catch((error) => { if (!controller.signal.aborted) mealState = errorText(error); })
       .finally(() => { if (!controller.signal.aborted) mealLoading = false; });
   }

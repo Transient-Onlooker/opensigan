@@ -1,6 +1,7 @@
 import json
 import threading
 import unittest
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -49,6 +50,54 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.get(path)["meals"][0]["dishes"], ["rice(1)"])
 
             factory.return_value.get_meals.assert_called_once()
+
+    def test_timetable_rejects_cached_week_outside_korean_current_and_next_week(self):
+        test_cache = Cache()
+        invalid_week = "2026-11-02"
+        test_cache.get(("timetable", "2:Example", invalid_week),
+                       lambda: {"schoolId": "2:Example", "weekStart": invalid_week,
+                                "records": [], "stale": False})
+        for valid_week in ("2026-11-09", "2026-11-16"):
+            test_cache.get(("timetable", "2:Example", valid_week),
+                           lambda: {"schoolId": "2:Example", "weekStart": valid_week,
+                                    "records": [], "stale": False})
+        fixed_datetime = type("FixedDateTime", (), {
+            "now": staticmethod(lambda tz=None: datetime(
+                2026, 11, 9, 6, 1, tzinfo=timezone.utc).astimezone(tz))
+        })
+        with patch("backend.app.cache", test_cache), patch(
+                "backend.timetable.datetime", fixed_datetime), patch(
+                "backend.app.fetch_timetable") as fetch:
+            for week in (invalid_week, "2026-11-23"):
+                with self.subTest(week=week):
+                    with self.assertRaises(HTTPError) as error:
+                        self.get(f"/api/v1/timetable?school=2%3AExample&week={week}")
+                    self.assertEqual(error.exception.code, 400)
+            for week in ("2026-11-09", "2026-11-16"):
+                with self.subTest(week=week):
+                    self.assertEqual(self.get(
+                        f"/api/v1/timetable?school=2%3AExample&week={week}")
+                        ["weekStart"], week)
+            fetch.assert_not_called()
+
+    def test_timetable_stale_cache_and_backoff_skip_external_fetch(self):
+        with patch("backend.app.cache", Cache(ttl=0, retry_delay=60)), patch(
+                "backend.timetable.datetime", type("FixedDateTime", (), {
+                    "now": staticmethod(lambda tz=None: datetime(
+                        2026, 11, 10, tzinfo=tz))
+                })), patch("backend.app.fetch_timetable") as fetch:
+            fetch.side_effect = [
+                {"schoolId": "2:Example", "weekStart": "2026-11-09",
+                 "records": ["old"], "stale": False},
+                RuntimeError("upstream unavailable"),
+            ]
+            path = "/api/v1/timetable?school=2%3AExample&week=2026-11-09"
+            self.assertFalse(self.get(path)["stale"])
+            self.assertTrue(self.get(path)["stale"])
+            stale_backoff = self.get(path)
+            self.assertTrue(stale_backoff["stale"])
+            self.assertEqual(stale_backoff["records"], ["old"])
+            self.assertEqual(fetch.call_count, 2)
 
     def test_meals_cache_serves_stale_after_upstream_failure(self):
         with patch("backend.app.cache", Cache(ttl=0, retry_delay=60)), \

@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from backend.cache import Cache
 from backend.neis import NEISClient, School
-from backend.timetable import fetch_timetable, search_schools
+from backend.timetable import fetch_timetable, search_schools, validate_timetable_week
 
 cache = Cache()
 logger = logging.getLogger("opensigan")
@@ -30,6 +30,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school):
                     raise ValueError("학교 식별자가 올바르지 않습니다")
                 week = self.query(query, "week", 10)
+                validate_timetable_week(week)
                 result = cache.get(("timetable", school, week), lambda: fetch_timetable(school, week))
             elif parts.path == "/api/v1/neis/schools":
                 name = self.query(query, "q", 50)

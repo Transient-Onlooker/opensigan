@@ -9,7 +9,7 @@ test('정규 API 경로, 매개변수와 오류를 처리한다', async () => {
     requests.push(url);
     return { ok: true, json: async () => ({ schools: [], records: [], meals: [] }) };
   };
-  const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
+  const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   try {
     const api = await server.ssrLoadModule('/src/api.ts');
     await api.searchSchools('서울 학교');

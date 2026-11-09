@@ -15,18 +15,7 @@ def search_schools(query):
     return schools
 
 
-def fetch_timetable(school_id, week):
-    from pycomcigan import TimeTable
-
-    if not isinstance(school_id, str):
-        raise ValueError("학교 식별자가 올바르지 않습니다")
-    parts = school_id.split(":")
-    if (len(parts) != 2 or not parts[0].isascii() or not parts[0].isdigit()
-            or not parts[1] or len(parts[1]) > 50):
-        raise ValueError("학교 식별자가 올바르지 않습니다")
-    code, name = parts
-    if int(code) == 0:
-        raise ValueError("학교 식별자가 올바르지 않습니다")
+def validate_timetable_week(week):
     if not isinstance(week, str):
         raise ValueError("주 시작일이 올바르지 않습니다")
     try:
@@ -40,6 +29,23 @@ def fetch_timetable(school_id, week):
     offset = (start - current).days // 7
     if start.weekday() != 0 or offset not in (0, 1):
         raise ValueError("현재 주 또는 다음 주의 월요일을 선택하세요")
+    return offset
+
+
+def fetch_timetable(school_id, week):
+    from pycomcigan import TimeTable
+
+    if not isinstance(school_id, str):
+        raise ValueError("학교 식별자가 올바르지 않습니다")
+    parts = school_id.split(":")
+    if (len(parts) != 2 or not parts[0].isascii() or not parts[0].isdigit()
+            or not parts[1] or len(parts[1]) > 50):
+        raise ValueError("학교 식별자가 올바르지 않습니다")
+    code, name = parts
+    if int(code) == 0:
+        raise ValueError("학교 식별자가 올바르지 않습니다")
+    offset = validate_timetable_week(week)
+    start = date.fromisoformat(week)
     try:
         timetable = TimeTable(name, school_code=int(code), week_num=offset)
     except ValueError as exc:

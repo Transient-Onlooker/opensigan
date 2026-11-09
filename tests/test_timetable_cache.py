@@ -2,7 +2,7 @@ import threading
 import unittest
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 from urllib.parse import urlencode
@@ -91,6 +91,20 @@ class TimetableTests(unittest.TestCase):
         self.assertEqual([sunday.call_args.kwargs["week_num"],
                           monday.call_args.kwargs["week_num"],
                           new_year.call_args.kwargs["week_num"]], [1, 0, 1])
+
+    def test_korean_midnight_changes_week_before_utc(self):
+        instant = datetime(2026, 12, 27, 14, 59, tzinfo=timezone.utc)
+        fixed = type("FixedDateTime", (datetime,), {
+            "now": classmethod(lambda cls, tz=None: instant.astimezone(tz))
+        })
+        with patch("backend.timetable.datetime", fixed):
+            self.assertEqual(timetable.validate_timetable_week("2026-12-21"), 0)
+            self.assertEqual(timetable.validate_timetable_week("2026-12-28"), 1)
+            instant = datetime(2026, 12, 27, 15, 0, tzinfo=timezone.utc)
+            with self.assertRaises(ValueError):
+                timetable.validate_timetable_week("2026-12-21")
+            self.assertEqual(timetable.validate_timetable_week("2026-12-28"), 0)
+            self.assertEqual(timetable.validate_timetable_week("2027-01-04"), 1)
 
     def test_rotating_region_and_duplicate_names_use_school_code(self):
         from pycomcigan import TimeTable
