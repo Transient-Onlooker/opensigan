@@ -1,0 +1,10 @@
+name = "opensigan-workers-api-local"
+main = "worker.py"
+compatibility_date = "2026-11-09"
+compatibility_flags = ["python_workers"]
+
+# Local-only placeholder; provision and configure a real database separately.
+[[d1_databases]]
+binding = "DB"
+database_name = "opensigan-cache-local"
+database_id = "00000000-0000-0000-0000-000000000000"

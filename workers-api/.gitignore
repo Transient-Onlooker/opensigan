@@ -1,0 +1,7 @@
+python_modules/
+.venv-workers/
+.wrangler/
+.runtime/
+backend/
+pylock.toml
+__pycache__/
