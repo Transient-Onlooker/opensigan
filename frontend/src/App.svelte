@@ -48,7 +48,7 @@
     schoolSearchState = '검색 중…';
     schoolTimer = setTimeout(async () => {
       const controller = new AbortController(); schoolRequest = controller;
-      try { const result = await searchSchools(schoolQuery.trim(), controller.signal); if (!controller.signal.aborted) { schoolResults = result.schools; schoolSearchState = schoolResults.length ? '' : '검색 결과가 없어요.'; } }
+      try { const result = await searchSchools(schoolQuery.trim(), controller.signal); if (!controller.signal.aborted) { schoolResults = result.schools; schoolSearchState = result.stale ? '저장된 검색 결과예요. 최신 정보가 아닐 수 있습니다.' : schoolResults.length ? '' : '검색 결과가 없어요.'; } }
       catch (error) { if (!controller.signal.aborted) schoolSearchState = errorText(error); }
     }, 250);
   }
@@ -58,7 +58,7 @@
     neisSearchState = '검색 중…';
     neisTimer = setTimeout(async () => {
       const controller = new AbortController(); neisRequest = controller;
-      try { const result = await searchNeisSchools(neisQuery.trim(), controller.signal); if (!controller.signal.aborted) { neisResults = result.schools; neisSearchState = neisResults.length ? '' : '검색 결과가 없어요.'; } }
+      try { const result = await searchNeisSchools(neisQuery.trim(), controller.signal); if (!controller.signal.aborted) { neisResults = result.schools; neisSearchState = result.stale ? '저장된 검색 결과예요. 최신 정보가 아닐 수 있습니다.' : neisResults.length ? '' : '검색 결과가 없어요.'; } }
       catch (error) { if (!controller.signal.aborted) neisSearchState = errorText(error); }
     }, 250);
   }

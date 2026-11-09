@@ -13,7 +13,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!response.ok) throw new Error(`요청을 완료하지 못했어요. (${response.status})`);
   return response.json() as Promise<T>;
 }
-export const searchSchools = (q: string, signal?: AbortSignal) => get<{ schools: School[] }>(`/api/v1/schools?q=${encodeURIComponent(q)}`, signal);
-export const searchNeisSchools = (q: string, signal?: AbortSignal) => get<{ schools: NeisSchool[] }>(`/api/v1/neis/schools?q=${encodeURIComponent(q)}`, signal);
+export const searchSchools = (q: string, signal?: AbortSignal) => get<{ schools: School[]; stale: boolean }>(`/api/v1/schools?q=${encodeURIComponent(q)}`, signal);
+export const searchNeisSchools = (q: string, signal?: AbortSignal) => get<{ schools: NeisSchool[]; stale: boolean }>(`/api/v1/neis/schools?q=${encodeURIComponent(q)}`, signal);
 export const getTimetable = (school: string, week: string, signal?: AbortSignal) => get<TimetableResponse>(`/api/v1/timetable?school=${encodeURIComponent(school)}&week=${encodeURIComponent(week)}`, signal);
 export const getMeals = (school: string, from: string, to: string, signal?: AbortSignal) => get<MealsResponse>(`/api/v1/meals?school=${encodeURIComponent(school)}&from=${from}&to=${to}`, signal);

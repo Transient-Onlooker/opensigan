@@ -21,10 +21,16 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parts.query)
         try:
             if parts.path == "/api/v1/status":
-                result = {"status": "ok"}
+                result = {"status": "ok", "scope": "process liveness"}
             elif parts.path == "/api/v1/schools":
                 name = self.query(query, "q", 50)
-                result = {"schools": search_schools(name)}
+                def fetch_school_search():
+                    try:
+                        return {"schools": search_schools(name), "stale": False}
+                    except ValueError as exc:
+                        raise RuntimeError("school search failed") from exc
+
+                result = cache.get(("school_search", name), fetch_school_search)
             elif parts.path == "/api/v1/timetable":
                 school = self.query(query, "school", 100)
                 if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school):
@@ -36,9 +42,15 @@ class Handler(BaseHTTPRequestHandler):
                 name = self.query(query, "q", 50)
                 if not os.environ.get("NEIS_API_KEY", "").strip():
                     raise RuntimeError("NEIS API key is not configured")
-                schools = NEISClient.from_environment().search_schools(name)
-                result = {"schools": [{"id": f"{s.office_code}:{s.school_code}",
-                    "name": s.name, "region": s.kind, "address": s.address} for s in schools]}
+                def fetch_schools():
+                    try:
+                        schools = NEISClient.from_environment().search_schools(name)
+                    except ValueError as exc:
+                        raise RuntimeError("NEIS school search failed") from exc
+                    return {"schools": [{"id": f"{s.office_code}:{s.school_code}",
+                        "name": s.name, "region": s.kind, "address": s.address} for s in schools], "stale": False}
+
+                result = cache.get(("neis_school_search", name), fetch_schools)
             elif parts.path == "/api/v1/meals":
                 school_id = self.query(query, "school", 20)
                 if not re.fullmatch(r"[A-Z]\d{2}:\d{7}", school_id):

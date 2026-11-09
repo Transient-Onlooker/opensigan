@@ -1,8 +1,10 @@
 import json
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -29,6 +31,102 @@ class ApiTests(unittest.TestCase):
     def get(self, path):
         with urlopen(self.base + path) as response:
             return json.load(response)
+
+    def setUp(self):
+        cache_patch = patch("backend.app.cache", Cache())
+        cache_patch.start()
+        self.addCleanup(cache_patch.stop)
+
+    def test_status_reports_process_liveness_without_checking_upstreams(self):
+        with patch("backend.app.search_schools", side_effect=RuntimeError), \
+                patch("backend.app.NEISClient.from_environment", side_effect=RuntimeError):
+            self.assertEqual(self.get("/api/v1/status"),
+                             {"status": "ok", "scope": "process liveness"})
+
+    def test_searches_single_flight_and_separate_sources_and_queries(self):
+        school_result = [{"id": "2:school", "name": "school", "region": "region"}]
+        neis_result = [{"id": "B10:1234567", "name": "school", "region": "high", "address": "address"}]
+        started = threading.Event()
+        release = threading.Event()
+
+        def fetch(name):
+            started.set()
+            if not release.wait(5):
+                raise RuntimeError("test timed out")
+            return school_result
+
+        with patch.dict("os.environ", {"NEIS_API_KEY": "test-key"}), \
+                patch("backend.app.search_schools", side_effect=fetch) as search, \
+                patch("backend.app.NEISClient.from_environment") as factory:
+            def fetch_neis(name):
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("test timed out")
+                return [School("B10", "1234567", "school", "high", "address")]
+
+            factory.return_value.search_schools.side_effect = fetch_neis
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = [pool.submit(self.get, "/api/v1/schools?q=school") for _ in range(8)]
+                try:
+                    self.assertTrue(started.wait(5))
+                finally:
+                    release.set()
+                self.assertEqual([f.result(timeout=5) for f in futures], [{"schools": school_result, "stale": False}] * 8)
+            started.clear()
+            release.clear()
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = [pool.submit(self.get, "/api/v1/neis/schools?q=school") for _ in range(8)]
+                try:
+                    self.assertTrue(started.wait(5))
+                finally:
+                    release.set()
+                self.assertEqual([f.result(timeout=5) for f in futures], [{"schools": neis_result, "stale": False}] * 8)
+            self.assertEqual(self.get("/api/v1/schools?q=other"), {"schools": school_result, "stale": False})
+            self.assertEqual(search.call_count, 2)
+            factory.return_value.search_schools.assert_called_once_with("school")
+
+    def test_search_cache_expiry_failure_backoff_and_result_contract(self):
+        now = [100.0]
+        clock = SimpleNamespace(monotonic=lambda: now[0])
+        cases = [
+            ("/api/v1/schools?q=expiry", "backend.app.search_schools",
+             [{"id": "2:expiry", "name": "expiry", "region": "region"}]),
+            ("/api/v1/neis/schools?q=expiry", "backend.app.NEISClient.from_environment",
+             [{"id": "B10:1234567", "name": "expiry", "region": "high", "address": "address"}]),
+        ]
+        for path, target, expected in cases:
+            with self.subTest(path=path), patch("backend.app.cache", Cache(ttl=10, retry_delay=5)), \
+                    patch("backend.cache.time", clock), patch.dict("os.environ", {"NEIS_API_KEY": "test-key"}), \
+                    patch(target) as mocked:
+                now[0] = 100
+                fetch = mocked if "NEISClient" not in target else mocked.return_value.search_schools
+                value = expected if fetch is mocked else [School("B10", "1234567", "expiry", "high", "address")]
+                fetch.side_effect = [value, RuntimeError("upstream unavailable"), []]
+                self.assertEqual(self.get(path), {"schools": expected, "stale": False})
+                now[0] = 109
+                self.assertEqual(self.get(path), {"schools": expected, "stale": False})
+                now[0] = 110
+                self.assertEqual(self.get(path), {"schools": expected, "stale": True})
+                now[0] = 114
+                self.assertEqual(self.get(path), {"schools": expected, "stale": True})
+                self.assertEqual(fetch.call_count, 2)
+                now[0] = 115
+                self.assertEqual(self.get(path), {"schools": [], "stale": False})
+                self.assertEqual(fetch.call_count, 3)
+
+    def test_search_first_failure_backoff_returns_503(self):
+        for path, target in [("/api/v1/schools?q=missing", "backend.app.search_schools"),
+                             ("/api/v1/neis/schools?q=missing", "backend.app.NEISClient.from_environment")]:
+            with self.subTest(path=path), patch("backend.app.cache", Cache(retry_delay=60)), \
+                    patch.dict("os.environ", {"NEIS_API_KEY": "test-key"}), patch(target) as mocked:
+                fetch = mocked if "NEISClient" not in target else mocked.return_value.search_schools
+                fetch.side_effect = ValueError("secret details")
+                for _ in range(2):
+                    with self.assertRaises(HTTPError) as error:
+                        self.get(path)
+                    self.assertEqual(error.exception.code, 503)
+                    self.assertNotIn("secret details", error.exception.read().decode())
+                fetch.assert_called_once()
 
     def test_school_search_and_meals(self):
         with patch("backend.app.search_schools", return_value=[{"id": "2:school", "name": "school", "region": "region"}]):
