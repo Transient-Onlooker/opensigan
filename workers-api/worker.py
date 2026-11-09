@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -15,6 +16,9 @@ from d1_cache import D1Cache
 
 # urllib3 debug output includes the request path and NEIS key.
 logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+
+CACHE_CONTENTION_RETRIES = 3
+CACHE_CONTENTION_DELAY_SECONDS = 0.05
 
 
 def neis_transport(url, timeout):
@@ -126,11 +130,28 @@ class Default(WorkerEntrypoint):
         if entry and entry.fresh(now):
             return entry.value
         stale = entry.value if entry and entry.has_value else None
-        token = secrets.token_urlsafe(32)
-        if not await cache.acquire_refresh(key, token, origin=origin,
-                                           now=int(time.time()), lease_seconds=120):
+        token = None
+        for attempt in range(CACHE_CONTENTION_RETRIES + 1):
+            if attempt:
+                await asyncio.sleep(CACHE_CONTENTION_DELAY_SECONDS)
+                entry = await cache.read(key)
+                now = int(time.time())
+                if entry and entry.fresh(now):
+                    return entry.value
+                stale = entry.value if entry and entry.has_value else None
+                if stale is not None:
+                    return {**stale, "stale": True}
+            now = int(time.time())
+            if entry and entry.retry_after is not None and entry.retry_after > now:
+                if stale is not None:
+                    return {**stale, "stale": True}
+                raise RuntimeError("cache refresh unavailable")
+            token = secrets.token_urlsafe(32)
+            if await cache.acquire_refresh(key, token, origin=origin, now=now, lease_seconds=120):
+                break
             if stale is not None:
                 return {**stale, "stale": True}
+        else:
             raise RuntimeError("cache refresh unavailable")
         try:
             value = load()

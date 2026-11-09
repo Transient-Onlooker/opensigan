@@ -10,7 +10,7 @@ import unittest
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -273,6 +273,158 @@ class ContractTest(unittest.TestCase):
             self.assertEqual(responses[0][0], 200)
             search.assert_called_once()
 
+    def test_cold_contender_uses_result_written_during_bounded_wait(self):
+        started, release, waiting, resume = (threading.Event() for _ in range(4))
+        responses = []
+
+        def slow(_):
+            started.set()
+            if not release.wait(5):
+                raise RuntimeError("timeout")
+            return [{"name": "shared"}]
+
+        async def observed_sleep(delay):
+            waiting.set()
+            await asyncio.to_thread(resume.wait, 5)
+
+        with patch.object(worker, "search_schools", side_effect=slow) as search, \
+             patch.object(worker.asyncio, "sleep", new=observed_sleep):
+            owner = threading.Thread(target=lambda: responses.append(self.request("/schools?q=shared")))
+            owner.start()
+            try:
+                self.assertTrue(started.wait(5))
+                contender = threading.Thread(target=lambda: responses.append(self.request("/schools?q=shared")))
+                contender.start()
+                self.assertTrue(waiting.wait(5))
+                release.set()
+                owner.join(5)
+                resume.set()
+                contender.join(5)
+            finally:
+                release.set()
+                resume.set()
+                owner.join(5)
+            self.assertFalse(owner.is_alive())
+            self.assertFalse(contender.is_alive())
+            self.assertEqual([response[0] for response in responses], [200, 200])
+            self.assertEqual([response[1] for response in responses], [
+                {"schools": [{"name": "shared"}], "stale": False},
+                {"schools": [{"name": "shared"}], "stale": False},
+            ])
+            search.assert_called_once_with("shared")
+
+    def test_cold_different_key_retries_after_origin_lock_released(self):
+        started, release, waiting, resume = (threading.Event() for _ in range(4))
+        responses = {}
+
+        def search(name):
+            if name == "owner":
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("timeout")
+            return [{"name": name}]
+
+        async def observed_sleep(delay):
+            waiting.set()
+            await asyncio.to_thread(resume.wait, 5)
+
+        with patch.object(worker, "search_schools", side_effect=search) as provider, \
+             patch.object(worker.asyncio, "sleep", new=observed_sleep):
+            owner = threading.Thread(target=lambda: responses.update(owner=self.request("/schools?q=owner")))
+            owner.start()
+            try:
+                self.assertTrue(started.wait(5))
+                contender = threading.Thread(target=lambda: responses.update(contender=self.request("/schools?q=contender")))
+                contender.start()
+                self.assertTrue(waiting.wait(5))
+                release.set()
+                owner.join(5)
+                self.assertFalse(owner.is_alive())
+                resume.set()
+                contender.join(5)
+            finally:
+                release.set()
+                resume.set()
+                owner.join(5)
+            self.assertFalse(contender.is_alive())
+            self.assertEqual(responses["owner"][0], 200)
+            self.assertEqual(responses["contender"],
+                             (200, {"schools": [{"name": "contender"}], "stale": False}))
+            self.assertEqual(provider.call_count, 2)
+
+    def test_cold_contender_stops_after_bounded_retries(self):
+        started, release = threading.Event(), threading.Event()
+
+        def slow(_):
+            started.set()
+            if not release.wait(5):
+                raise RuntimeError("timeout")
+            return []
+
+        with patch.object(worker, "search_schools", side_effect=slow) as search:
+            owner = threading.Thread(target=lambda: self.request("/schools?q=owner"))
+            owner.start()
+            try:
+                self.assertTrue(started.wait(5))
+                with patch.object(worker.asyncio, "sleep", new=AsyncMock()) as sleep:
+                    self.assertEqual(self.request("/schools?q=contender")[0], 503)
+                    self.assertEqual(sleep.await_count, worker.CACHE_CONTENTION_RETRIES)
+            finally:
+                release.set()
+                owner.join(5)
+            self.assertFalse(owner.is_alive())
+            self.assertEqual(search.call_count, 1)
+
+    def test_cold_cache_backoff_returns_without_waiting_or_loading(self):
+        cache = worker.D1Cache(self.db, base_backoff_seconds=5, max_backoff_seconds=30)
+        key = 'opensigan:["schools","backed-off"]'
+        self.assertTrue(asyncio.run(cache.acquire_refresh(key, "owner", origin="comcigan",
+                                                          now=1000, lease_seconds=120)))
+        self.assertTrue(asyncio.run(cache.store_failure(key, "owner", now=1000)))
+        with patch.object(worker.time, "time", return_value=1001), \
+             patch.object(worker.asyncio, "sleep", new=AsyncMock()) as sleep, \
+             patch.object(worker, "search_schools") as search:
+            self.assertEqual(self.request("/schools?q=backed-off"),
+                             (503, {"error": "upstream unavailable"}))
+            sleep.assert_not_awaited()
+            search.assert_not_called()
+
+    def test_upstream_failure_during_wait_respects_new_backoff(self):
+        started, release, waiting, resume = (threading.Event() for _ in range(4))
+        responses = []
+
+        def fail(_):
+            started.set()
+            if not release.wait(5):
+                raise RuntimeError("timeout")
+            raise RuntimeError("upstream failed")
+
+        async def observed_sleep(delay):
+            waiting.set()
+            await asyncio.to_thread(resume.wait, 5)
+
+        with patch.object(worker, "search_schools", side_effect=fail) as search, \
+             patch.object(worker.asyncio, "sleep", new=observed_sleep):
+            owner = threading.Thread(target=lambda: responses.append(self.request("/schools?q=failing")))
+            owner.start()
+            try:
+                self.assertTrue(started.wait(5))
+                contender = threading.Thread(target=lambda: responses.append(self.request("/schools?q=failing")))
+                contender.start()
+                self.assertTrue(waiting.wait(5))
+                release.set()
+                owner.join(5)
+                self.assertFalse(owner.is_alive())
+                resume.set()
+                contender.join(5)
+            finally:
+                release.set()
+                resume.set()
+                owner.join(5)
+            self.assertFalse(contender.is_alive())
+            self.assertEqual([response[0] for response in responses], [503, 503])
+            search.assert_called_once_with("failing")
+
     def test_origin_contention_preserves_stale_and_allows_other_origin(self):
         started, release = threading.Event(), threading.Event()
         responses = []
@@ -294,7 +446,9 @@ class ContractTest(unittest.TestCase):
             thread.start()
             try:
                 self.assertTrue(started.wait(5))
-                status, body = self.request("/schools?q=stale")
+                with patch.object(worker.asyncio, "sleep", new=AsyncMock()) as sleep:
+                    status, body = self.request("/schools?q=stale")
+                    sleep.assert_not_awaited()
                 self.assertEqual((status, body), (200, {"schools": [{"name": "stale"}], "stale": True}))
                 self.assertEqual(self.request("/schools?q=cold")[0], 503)
                 self.assertEqual(self.request("/api/v1/neis/schools?q=independent", key="mock-key"),
