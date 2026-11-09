@@ -30,7 +30,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school):
                     raise ValueError("학교 식별자가 올바르지 않습니다")
                 week = self.query(query, "week", 10)
-                result = cache.get((school, week), lambda: fetch_timetable(school, week))
+                result = cache.get(("timetable", school, week), lambda: fetch_timetable(school, week))
             elif parts.path == "/api/v1/neis/schools":
                 name = self.query(query, "q", 50)
                 if not os.environ.get("NEIS_API_KEY", "").strip():
@@ -50,9 +50,12 @@ class Handler(BaseHTTPRequestHandler):
                 school = School(office, code, "")
                 if not os.environ.get("NEIS_API_KEY", "").strip():
                     raise RuntimeError("NEIS API key is not configured")
-                meals = NEISClient.from_environment().get_meals(school, start, end)
-                result = {"meals": [{"date": m.date, "type": m.meal_type,
-                    "dishes": re.split(r"<br\s*/?>", m.menu, flags=re.I)} for m in meals], "stale": False}
+                def fetch_meals():
+                    meals = NEISClient.from_environment().get_meals(school, start, end)
+                    return {"meals": [{"date": m.date, "type": m.meal_type,
+                        "dishes": re.split(r"<br\s*/?>", m.menu, flags=re.I)} for m in meals], "stale": False}
+
+                result = cache.get(("meals", school_id, start, end), fetch_meals)
             else:
                 self.respond(404, {"error": "요청한 경로가 없습니다"}, origin)
                 return

@@ -3,3 +3,4 @@
 @media(max-width:360px){main{width:calc(100% - 24px)}.topbar{padding:0 12px}.week-control{max-width:190px}.meal-row{grid-template-columns:54px 45px 1fr;gap:5px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}
 button:disabled{opacity:.4;cursor:not-allowed}
+.table-scroll:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
