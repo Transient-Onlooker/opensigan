@@ -1,10 +1,25 @@
 # MVP 고정 버전의 Workers 로컬 실험
 
-> 최신 결과: 초기 실패 이후 자체 빌드 wheel로 로컬 Workers import·AES와 검색 API 1회가 성공했다. 최신 근거와 재현 명령은 [COMPATIBILITY.md](COMPATIBILITY.md)의 추가 실험을 따른다. 아래의 초기 실패와 기존 실행 설명은 당시 기록이다.
+## 현재 주 시간표 단회 실험 — 2026-11-10 KST
+
+로컬 Python Workers에서 실제 학교 한 곳의 `TimeTable(학교명, week_num=0)`을 한 번 호출했다. 성공, 월~금 수업 1,182건, `replaced=True` 18건, 수업의 불리언 변경 표시 값 존재, 오류 유형 없음, Worker 처리 벽시계 920ms다. 수업은 과목 또는 교사 값이 있거나 변경 표시가 참인 교시이며 빈 교시는 제외한다. 학교 전체 학년·반을 합산했다. 원본이나 학교·교사·반 식별정보는 기록하지 않았다. 표시 값의 존재와 참인 건수를 확인한 것이며 기준 시간표와 대조한 정확도 검증은 아니다.
+
+한 번의 공개 API 호출은 내부 서비스 페이지, 학교 검색 및 시간표 HTTP 요청을 포함할 수 있다. HTTP 횟수는 계측하지 않았다. 학교명이 유일하지 않으면 조회가 실패할 수 있다. 예외는 메시지 없이 유형만 저장하므로 upstream이 모두 `RuntimeError`로 바꾸는 403과 429는 이 기록만으로 구별하지 못한다. 자동 재시도는 없다. 새 프로세스를 실행하면 다시 호출 가능하므로 재현 실행도 별도의 실제 외부 조회다. 로컬 단일 표본으로 실제 Cloudflare 환경, CPU·메모리, 반복 안정성, 변경 표시의 의미나 정확도를 증명하지 않는다.
+
+기존 wheel 준비와 해시 검증은 [COMPATIBILITY.md](COMPATIBILITY.md)를 따른다. `phase0-mvp`에서 아래 실행 시 유일하게 검색되는 학교명을 직접 입력한다. 이름은 요청 본문으로 로컬 Worker에만 전달하며 파일·명령줄 인수에 저장하지 않는다. 실행 전 원본 이용 조건을 확인한다.
+
+```powershell
+$env:OPENSIGAN_SCHOOL = Read-Host '조회할 학교명'
+try { python run_local.py --timetable } finally { Remove-Item Env:OPENSIGAN_SCHOOL }
+```
+
+기동 대기 최대 60초, 로컬 요청 대기와 프로세스 트리 종료 watchdog 45초, 종료 확인 최대 10초다. upstream 각 HTTP 요청의 timeout은 30초이며 전체 45초 제한이 먼저 걸릴 수 있다. 각 Worker isolate의 시도 플래그는 서버 재시작이나 isolate 교체를 넘는 전역 제한이 아니다. runner는 로컬 요청을 한 번만 보낸다. 결과는 무시 대상 `run-result.json`, 제한된 이벤트는 `run.log`에 덮어쓴다. 프로세스 종료는 `server_stopped`와 종료 코드로 기록하며 강제 종료 코드 1은 API 실패를 뜻하지 않는다. 이번 실행 후 포트 18787 수신 프로세스가 없음을 확인했다. `elapsed_ms`는 Worker 요청 처리 벽시계이며 서버 기동·번들 준비, CPU 시간은 포함하지 않는다.
+
+> 이전 결과: 초기 실패 이후 자체 빌드 wheel로 로컬 Workers import·AES와 검색 API 1회가 성공했다. 시간표 후속 결과는 위를 따른다. 아래의 초기 실패와 기존 실행 설명은 당시 기록이다.
 
 2026-11-10에 MVP와 같은 `pycomcigan` Git 커밋 `e8ceaec7bad47cef946ec0174cc523f3652f42ee`의 소스로 wheel을 빌드했다. 캐시 체크아웃의 `git rev-parse HEAD`로 커밋을 확인했고 추적 파일 변경은 없었다. 빌드 결과는 `wheelhouse/pycomcigan-1.4.3-py3-none-any.whl`, SHA-256은 `9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9`다. `pyproject.toml`의 `tool.uv.sources`가 이 로컬 파일을 가리키며 `uv.lock`에도 경로와 해시가 기록된다.
 
-이전 Git 직접 참조는 `uv pip compile --no-build`의 소스 빌드 금지에 걸렸다. wheel 적용 후 같은 CPython 3.14.2 Emscripten 대상에서 `--no-deps --no-build` 해석은 wheel을 선택하고 성공했다. 전체 로컬 Workers 준비는 후속 의존성 `pycryptodomex>=3.23`에 해당 대상의 사용 가능한 wheel이 없어 실패했다. 서버 종료 코드는 1이고 검색 API 호출은 **0회**다. 실행 원문 `run.log`는 로컬 경로가 포함되어 Git에 올리지 않는다. 이는 현 시점 패키지 해석 결과이며 네트워크나 CPU 호환성 판정은 아니다. 원격 배포는 하지 않았다.
+이전 Git 직접 참조는 `uv pip compile --no-build`의 소스 빌드 금지에 걸렸다. wheel 적용 후 같은 CPython 3.14.2 Emscripten 대상에서 `--no-deps --no-build` 해석은 wheel을 선택하고 성공했다. 당시 전체 로컬 Workers 준비는 후속 의존성 `pycryptodomex>=3.23`에 해당 대상의 사용 가능한 wheel이 없어 실패했다. 서버 종료 코드는 1이고 검색 API 호출은 **0회**였다. 당시 실행 원문은 Git에 올리지 않았다. 이는 당시 패키지 해석 결과이며 네트워크나 CPU 호환성 판정은 아니다. 원격 배포는 하지 않았다.
 
 ## Windows 재현
 

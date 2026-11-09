@@ -65,16 +65,16 @@
   }
   function chooseSchool(value: School) {
     schoolRequest?.abort(); clearTimeout(schoolTimer); school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = '';
-    localStorage.setItem('opensigan-school', JSON.stringify(value));
+    try { localStorage.setItem('opensigan-school', JSON.stringify(value)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
     neisRequest?.abort(); clearTimeout(neisTimer);
     neis = null; neisQuery = ''; neisResults = []; neisSearchState = '';
-    try { const saved = localStorage.getItem(neisKey(value.id)); if (saved) neis = JSON.parse(saved) as NeisSchool; } catch { localStorage.removeItem(neisKey(value.id)); }
+    try { const saved = localStorage.getItem(neisKey(value.id)); if (saved) neis = JSON.parse(saved) as NeisSchool; } catch { /* 저장된 설정을 사용할 수 없습니다. */ }
     if (neis) neisQuery = neis.name;
     loadTimetable(); loadMeals();
   }
   function chooseNeis(value: NeisSchool) {
     neisRequest?.abort(); clearTimeout(neisTimer); neis = value; neisQuery = value.name; neisResults = []; neisSearchState = '';
-    if (school) localStorage.setItem(neisKey(school.id), JSON.stringify(value));
+    if (school) { try { localStorage.setItem(neisKey(school.id), JSON.stringify(value)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
     loadMeals();
   }
   function loadTimetable() {
@@ -119,10 +119,12 @@
     const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshCalendar(); };
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('focus', refreshCalendar);
-    const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
-    const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
-    const savedClass = Number(localStorage.getItem('opensigan-class')); if (Number.isInteger(savedClass) && savedClass >= 1 && savedClass <= 99) classroom = savedClass;
-    try { const saved = localStorage.getItem('opensigan-school'); if (saved) chooseSchool(JSON.parse(saved) as School); } catch { localStorage.removeItem('opensigan-school'); }
+    try {
+      const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
+      const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
+      const savedClass = Number(localStorage.getItem('opensigan-class')); if (Number.isInteger(savedClass) && savedClass >= 1 && savedClass <= 99) classroom = savedClass;
+      const saved = localStorage.getItem('opensigan-school'); if (saved) chooseSchool(JSON.parse(saved) as School);
+    } catch { /* 저장소를 사용할 수 없으면 기본 설정으로 시작합니다. */ }
     return () => { clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', refreshCalendar); clearTimeout(schoolTimer); clearTimeout(neisTimer); schoolRequest?.abort(); neisRequest?.abort(); tableRequest?.abort(); mealRequest?.abort(); };
   });
 </script>

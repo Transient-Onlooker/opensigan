@@ -1,5 +1,7 @@
 # Phase 0 근거 및 판정 — 2026-11-10 KST
 
+> 현재 주 후속 실험: 고정 wheel 기반 로컬 Workers에서 실제 학교 한 곳의 `TimeTable` 공개 API를 한 번 호출해 시간표 파싱에 성공했다. 월~금 수업 1,182건, 변경 표시 참 18건, 불리언 표시 값 존재, 오류 없음, Worker 처리 벽시계 920ms다. 원본·식별정보 저장, 외부 재시도 및 원격 배포는 하지 않았다. 서비스 페이지·학교 검색·시간표 요청이 API 내부에서 발생할 수 있으며 HTTP 횟수는 측정하지 않았다. 서버 기동 60초·요청 45초 제한과 프로세스 종료 및 포트 해제를 확인했다. 단일 로컬 표본이고 실제 Cloudflare CPU·메모리, 반복 안정성 및 기준 자료 대비 정확도는 미검증이다. 정확한 집계 기준과 재현 절차는 [phase0-mvp README](../phase0-mvp/README.md)를 따른다.
+
 > 추가 결과: MVP 고정 1.4.3과 자체 빌드 PyEmscripten `pycryptodomex` wheel을 사용한 로컬 Workers에서 의존성 해석, import 및 AES 정답 검사에 성공했고, 별도 단회 `get_school_code` 호출도 성공했다(10건, Worker 벽시계 755ms). API 호출 내부의 실제 HTTP 횟수는 계측하지 않았다. 원격 배포, 반복 호출 및 실제 Cloudflare 자원 검증은 하지 않았다. wheel 해시, 제한, 오프라인 실패와 재현 명령은 [MVP 호환성 기록](../phase0-mvp/COMPATIBILITY.md)의 추가 실험 참조. 이하 기존 판정과 실패 기록은 당시 관찰이다.
 
 ## MVP 고정 커밋 wheel 후속 실험 — 2026-11-10 KST

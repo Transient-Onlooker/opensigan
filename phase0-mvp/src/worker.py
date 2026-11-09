@@ -23,11 +23,34 @@ class Default(WorkerEntrypoint):
             if attempted:
                 raise RuntimeError("single attempt already used")
             attempted = True
+            if request.url.endswith("/timetable"):
+                from pycomcigan import TimeTable
+
+                school_name = await request.text()
+                table = TimeTable(school_name, week_num=0)
+                count = 0
+                changed = 0
+                for classes in table.timetable:
+                    for days in classes:
+                        for lessons in days[1:6]:
+                            for lesson in lessons:
+                                if not isinstance(lesson.replaced, bool):
+                                    raise TypeError("invalid change flag")
+                                if not isinstance(lesson.subject, str) or not isinstance(lesson.teacher, str):
+                                    raise TypeError("invalid lesson")
+                                if lesson.subject or lesson.teacher or lesson.replaced:
+                                    count += 1
+                                    changed += int(lesson.replaced)
+                result = {"success": True, "count": count, "changed_count": changed,
+                          "change_flag_present": count > 0, "error_type": None}
+                result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+                return Response(json.dumps(result), headers={"content-type": "application/json"})
             from pycomcigan import get_school_code
 
             count = len(get_school_code("서울"))
             result = {"success": True, "count": count, "error_type": None}
         except Exception as exc:
-            result = {"success": False, "count": None, "error_type": type(exc).__name__}
+            result = {"success": False, "count": None, "changed_count": None,
+                      "change_flag_present": None, "error_type": type(exc).__name__}
         result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
         return Response(json.dumps(result), headers={"content-type": "application/json"})

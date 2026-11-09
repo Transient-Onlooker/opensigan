@@ -1,5 +1,9 @@
 # Phase 0: 고정 upstream의 Workers 패키징 판정
 
+## 현재 주 시간표 실측 — 2026-11-10
+
+로컬 Workers에서 실제 학교 한 곳을 `TimeTable`로 단회 조회해 성공했다. 월~금 수업 1,182건, 변경 표시 참 18건, 불리언 변경 표시 값 존재, 오류 없음, Worker 벽시계 920ms다. 수업·변경의 정의, 비식별 기록, 실행 제한과 재현 절차는 [README](README.md)의 현재 주 실험을 따른다. 값의 정확성 비교, 실제 Cloudflare 자원·운영 환경과 반복 안정성은 미검증이다. API 내부 HTTP 요청 횟수는 계측하지 않았으며 재시도나 원격 배포는 하지 않았다.
+
 ## 추가 실험: 로컬 PyEmscripten wheel — 2026-11-10
 
 제공된 `pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl`을 `wheelhouse/`에 복사했다. SHA-256은 `f2c5fdc9fe8ba8ea5b827dc04fe06ad2d47e96ecbba58494bb6d5794439602b5`다. 자체 빌드 실험 산출물로 Git 무시 대상이다. 소스 sdist SHA-256은 `e4dbc29e2575365d15e272f769329106277649aea081e2119cf43d66950f8f8f`다. 제공자의 별도 Pyodide AES 성공 보고와 별개로 이번에 Workers 내부 AES를 검사했다.
