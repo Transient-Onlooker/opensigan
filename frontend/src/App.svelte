@@ -101,7 +101,7 @@
   }
   function changeWeek(delta: number) { refreshCalendar(); const next = addDays(week, delta * 7); if (next < current || next > addDays(current, 7)) return; week = next; loadTimetable(); loadMeals(); }
   function currentWeek() { refreshCalendar(); week = current; loadTimetable(); loadMeals(); }
-  function changeTheme() { theme = theme === 'dark' ? 'light' : 'dark'; localStorage.setItem('opensigan-theme', theme); }
+  function changeTheme() { theme = theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   function updateClass(event: Event) {
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
     classError = !Number.isInteger(value) || value < 1 || value > 99;
@@ -109,9 +109,9 @@
   }
   function saveClass(event: Event) {
     updateClass(event);
-    if (!classError) localStorage.setItem('opensigan-class', String(classroom));
+    if (!classError) { try { localStorage.setItem('opensigan-class', String(classroom)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   }
-  function saveGrade() { localStorage.setItem('opensigan-grade', String(grade)); }
+  function saveGrade() { try { localStorage.setItem('opensigan-grade', String(grade)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
 
   onMount(() => {
     refreshCalendar();

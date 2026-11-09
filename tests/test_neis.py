@@ -68,10 +68,21 @@ class NEISTests(unittest.TestCase):
     def test_pagination_returns_all_candidates(self):
         def transport(url, timeout):
             page = parse_qs(urlsplit(url).query)["pIndex"][0]
-            row = {"ATPT_OFCDC_SC_CODE": "A10", "SD_SCHUL_CODE": page, "SCHUL_NM": "학교"}
+            row = {"ATPT_OFCDC_SC_CODE": "A10", "SD_SCHUL_CODE": page.zfill(7), "SCHUL_NM": "학교"}
             return response("schoolInfo", [row], count=2)
         candidates = NEISClient("key", transport=transport).search_schools("학교", office_code="A10")
-        self.assertEqual([s.school_code for s in candidates], ["1", "2"])
+        self.assertEqual([s.school_code for s in candidates], ["0000001", "0000002"])
+
+    def test_school_search_rejects_identifiers_unusable_by_meal_api(self):
+        valid = {"ATPT_OFCDC_SC_CODE": "A10", "SD_SCHUL_CODE": "1000001", "SCHUL_NM": "학교"}
+        for field, value in [("ATPT_OFCDC_SC_CODE", "A1"), ("ATPT_OFCDC_SC_CODE", "a10"),
+                             ("SD_SCHUL_CODE", "12345"), ("SD_SCHUL_CODE", "123456x"),
+                             ("SCHUL_NM", "  ")]:
+            with self.subTest(field=field, value=value):
+                payload = response("schoolInfo", [{**valid, field: value}])
+                client = NEISClient("key", transport=lambda url, timeout: payload)
+                with self.assertRaises(NEISResponseError):
+                    client.search_schools("학교")
 
     def test_api_error_is_distinct_from_empty_data(self):
         for data in [

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable, Mapping
@@ -153,8 +154,12 @@ class NEISClient:
             params["ATPT_OFCDC_SC_CODE"] = office_code
         result = []
         for row in self._all_rows("schoolInfo", params):
-            if any(not isinstance(row.get(key), str) or not row[key] for key in ("ATPT_OFCDC_SC_CODE", "SD_SCHUL_CODE", "SCHUL_NM")):
-                raise NEISResponseError("NEIS 학교 식별자가 누락되었습니다.")
+            office = row.get("ATPT_OFCDC_SC_CODE")
+            code = row.get("SD_SCHUL_CODE")
+            if (not isinstance(office, str) or not re.fullmatch(r"[A-Z][0-9]{2}", office)
+                    or not isinstance(code, str) or not re.fullmatch(r"[0-9]{7}", code)
+                    or not isinstance(row.get("SCHUL_NM"), str) or not row["SCHUL_NM"].strip()):
+                raise NEISResponseError("NEIS 학교 정보가 올바르지 않습니다.")
             result.append(School(row["ATPT_OFCDC_SC_CODE"], row["SD_SCHUL_CODE"], row["SCHUL_NM"], row.get("SCHUL_KND_SC_NM"), row.get("ORG_RDNMA")))
         return result
 
