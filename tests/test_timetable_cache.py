@@ -21,6 +21,45 @@ class FakeLesson:
 
 
 class TimetableTests(unittest.TestCase):
+    def test_403_invalidates_without_immediate_retry(self):
+        from types import SimpleNamespace
+        timetable._protocol = None
+        timetable._protocol_expires = 0
+        with patch('pycomcigan.helpers.get_comcigan_response_for_codes', return_value=SimpleNamespace(text='page')) as page, \
+             patch('pycomcigan.service_page.decode_service_page', return_value='decoded'), \
+             patch('pycomcigan.service_protocol.parse_service_protocol', side_effect=[SimpleNamespace(endpoint='/old'), SimpleNamespace(endpoint='/new')]), \
+             patch('pycomcigan.helpers.school_search', side_effect=[RuntimeError('Comcigan request rejected (HTTP 403); the page token may have expired'), []]) as search:
+            with self.assertRaisesRegex(RuntimeError, '403'):
+                timetable._search_with_cached_protocol('one')
+            self.assertEqual(page.call_count, 1)
+            self.assertEqual(search.call_count, 1)
+            self.assertEqual(timetable._search_with_cached_protocol('two'), [])
+            self.assertEqual(page.call_count, 2)
+        timetable._protocol = None
+        timetable._protocol_expires = 0
+
+    def test_protocol_reuse_refresh_and_no_retry_for_rate_limit(self):
+        from types import SimpleNamespace
+        protocols = [SimpleNamespace(endpoint='/old'), SimpleNamespace(endpoint='/new')]
+        timetable._protocol = None
+        timetable._protocol_expires = 0
+        with patch('pycomcigan.helpers.get_comcigan_response_for_codes', return_value=SimpleNamespace(text='page')) as page, \
+             patch('pycomcigan.service_page.decode_service_page', return_value='decoded'), \
+             patch('pycomcigan.service_protocol.parse_service_protocol', side_effect=protocols) as parse, \
+             patch('pycomcigan.helpers.school_search', side_effect=[[], [], RuntimeError('Encrypted response authentication failed'), [], RuntimeError('Comcigan rate limit reached (HTTP 429); retry later')]) as search:
+            self.assertEqual(timetable._search_with_cached_protocol('one'), [])
+            self.assertEqual(timetable._search_with_cached_protocol('two'), [])
+            self.assertEqual(page.call_count, 1)
+            self.assertEqual(timetable._search_with_cached_protocol('three'), [])
+            self.assertEqual(page.call_count, 2)
+            with self.assertRaisesRegex(RuntimeError, '429'):
+                timetable._search_with_cached_protocol('four')
+            self.assertEqual(page.call_count, 2)
+            self.assertEqual(search.call_count, 5)
+            self.assertEqual(parse.call_count, 2)
+        timetable._protocol = None
+        timetable._protocol_expires = 0
+
     def test_seven_day_source_keeps_weekday_records(self):
         days = [[], [FakeLesson(1, "Math", "Kim")], [], [], [], [], [], []]
         table = type("Table", (), {"timetable": [[], [[], days]], "update_date": None})()
@@ -154,10 +193,10 @@ class TimetableTests(unittest.TestCase):
     def test_search_id_is_stable_across_region_code_changes(self):
         rows = [[6347, "region A", "Example", 76524],
                 [1234, "region B", "Example", 76525]]
-        with patch("pycomcigan.get_school_code", return_value=rows):
+        with patch("backend.timetable._search_with_cached_protocol", return_value=rows):
             first = timetable.search_schools("Example")
         rows[0][0] = 9999
-        with patch("pycomcigan.get_school_code", return_value=rows):
+        with patch("backend.timetable._search_with_cached_protocol", return_value=rows):
             second = timetable.search_schools("Example")
         self.assertEqual(first, second)
         self.assertEqual(first, [{"id": "76524:Example", "name": "Example", "region": "region A"},
@@ -165,7 +204,7 @@ class TimetableTests(unittest.TestCase):
 
     def test_malformed_school_search_response_is_rejected(self):
         for row in ([1, "region", "Example", 0], [1, "region", "bad:name", 2], [1]):
-            with self.subTest(row=row), patch("pycomcigan.get_school_code", return_value=[row]):
+            with self.subTest(row=row), patch("backend.timetable._search_with_cached_protocol", return_value=[row]):
                 with self.assertRaises(RuntimeError):
                     timetable.search_schools("Example")
 
@@ -191,7 +230,7 @@ class TimetableTests(unittest.TestCase):
             base = f"http://127.0.0.1:{server.server_port}"
             with patch("backend.app.cache", cache_module.Cache()), patch(
                 "backend.timetable.datetime", fixed
-            ), patch("pycomcigan.get_school_code", return_value=[[6347, "region", "Example", 76524]]), patch(
+            ), patch("backend.timetable._search_with_cached_protocol", return_value=[[6347, "region", "Example", 76524]]), patch(
                 "pycomcigan.timetable.school_search", return_value=rows
             ), patch("pycomcigan.TimeTable", side_effect=construct):
                 with urlopen(base + "/api/v1/schools?q=Example") as response:

@@ -1,11 +1,47 @@
 from datetime import date, datetime, timedelta, timezone
+import threading
+import time
+
+_protocol = None
+_protocol_expires = 0.0
+_protocol_lock = threading.Lock()
+
+
+def _search_with_cached_protocol(query, *, retry=True):
+    from pycomcigan.helpers import get_comcigan_response_for_codes, school_search
+    from pycomcigan.service_page import decode_service_page
+    from pycomcigan.service_protocol import parse_service_protocol
+
+    global _protocol, _protocol_expires
+    with _protocol_lock:
+        now = time.monotonic()
+        reused = _protocol is not None and now < _protocol_expires
+        if not reused:
+            _protocol = parse_service_protocol(decode_service_page(get_comcigan_response_for_codes().text))
+            _protocol_expires = time.monotonic() + 300
+        protocol = _protocol
+    try:
+        return school_search(query, protocol.endpoint, protocol)
+    except RuntimeError as exc:
+        message = str(exc)
+        invalid_protocol = message in (
+            'Encrypted response protocol mismatch',
+            'Encrypted response authentication failed',
+        )
+        rejected = 'HTTP 403' in message
+        if invalid_protocol or rejected:
+            with _protocol_lock:
+                if _protocol is protocol:
+                    _protocol = None
+                    _protocol_expires = 0.0
+        if invalid_protocol and reused and retry:
+            return _search_with_cached_protocol(query, retry=False)
+        raise
 
 
 def search_schools(query):
-    from pycomcigan import get_school_code
-
     schools = []
-    for row in get_school_code(query):
+    for row in _search_with_cached_protocol(query):
         if (not isinstance(row, (list, tuple)) or len(row) < 4
                 or not isinstance(row[3], int) or isinstance(row[3], bool) or row[3] <= 0
                 or not isinstance(row[2], str) or not row[2] or len(row[2]) > 50

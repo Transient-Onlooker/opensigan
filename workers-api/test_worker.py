@@ -143,7 +143,7 @@ class ContractTest(unittest.TestCase):
             [6347, "region A", "Example", 76524],
             [9999, "region B", "Example", 76525],
         ]
-        with patch("pycomcigan.get_school_code", return_value=fixture) as provider:
+        with patch("backend.timetable._search_with_cached_protocol", return_value=fixture) as provider:
             status, body = self.request("/api/v1/schools?q=Example")
             self.assertEqual((status, body), (200, {
                 "schools": [
