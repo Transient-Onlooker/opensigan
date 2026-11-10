@@ -19,6 +19,8 @@ logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
 CACHE_CONTENTION_RETRIES = 3
 CACHE_CONTENTION_DELAY_SECONDS = 0.05
+NEIS_CONTENTION_RETRIES = 12
+NEIS_CONTENTION_DELAY_SECONDS = 0.1
 CACHE_MAINTENANCE_INTERVAL_SECONDS = 6 * 60 * 60
 CACHE_MAINTENANCE_FAILURE_RETRY_SECONDS = 5 * 60
 _monotonic = time.monotonic
@@ -158,9 +160,11 @@ class Default(WorkerEntrypoint):
         stale = (entry.value if entry and entry.has_value
                  and entry.expires_at + cache.stale_retention_seconds > now else None)
         token = None
-        for attempt in range(CACHE_CONTENTION_RETRIES + 1):
+        contention_retries = NEIS_CONTENTION_RETRIES if origin == "neis" else CACHE_CONTENTION_RETRIES
+        contention_delay = NEIS_CONTENTION_DELAY_SECONDS if origin == "neis" else CACHE_CONTENTION_DELAY_SECONDS
+        for attempt in range(contention_retries + 1):
             if attempt:
-                await asyncio.sleep(CACHE_CONTENTION_DELAY_SECONDS)
+                await asyncio.sleep(contention_delay)
                 try:
                     entry = await cache.read(key)
                 except Exception:

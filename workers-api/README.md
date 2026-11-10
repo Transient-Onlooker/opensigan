@@ -30,7 +30,7 @@ School searches, timetables, NEIS searches and meals require `env.DB` and use D1
 
 Each isolate opportunistically prunes up to 100 abandoned rows on its first request and at six-hour intervals after success; failures retry after five minutes. Active leases, backoff and recent rate history are preserved. This is not a global schedule or storage limit; cleanup runs only with traffic. A local Python Worker with local D1 removed two expired fixture rows and preserved fresh and usable stale rows, active leases, backoff and recent rate history. Distributed Cloudflare D1 behavior remains unverified.
 
-Cold requests encountering an active lease wait up to three 50 ms intervals and recheck the cache and lease; a longer contention or failure backoff still returns 503. Stale data is returned immediately.
+Cold requests encountering contention recheck the cache and lease for up to 150 ms for Comcigan or 1.2 seconds for NEIS, allowing a NEIS request arriving just after another to pass the one-second origin interval. Longer contention or failure backoff still returns 503. Stale data is returned immediately.
 
 Each refresh requires an explicit origin group. The Worker assigns `comcigan` to school searches and timetables, and `neis` to NEIS searches and meals. One unexpired lease per origin is allowed across different keys in the same database; a key must retain the same origin. All callers for an origin must use the same database and a current UTC clock. This is a limit on leases, not a strict limit on actual upstream calls after lease expiry, a request-rate limit, or protection against callers that bypass this cache. SQLite/mock tests do not establish distributed D1 behavior.
 

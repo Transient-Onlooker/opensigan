@@ -178,6 +178,32 @@ class ContractTest(unittest.TestCase):
             factory.assert_called_with("mock-key", transport=worker.neis_transport)
             client.get_meals.assert_called_once_with(worker.School("B10", "1234567", ""), date(2026, 11, 9), date(2026, 11, 15))
 
+    def test_neis_meals_waits_for_origin_rate_limit_after_school_search(self):
+        clock = [1000.0]
+
+        async def advance_time(seconds):
+            clock[0] += seconds
+
+        with patch.object(worker.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(worker.asyncio, "sleep", new=AsyncMock(side_effect=advance_time)) as sleep, \
+             patch.object(worker, "NEISClient") as factory:
+            client = factory.return_value
+            client.search_schools.return_value = [worker.School("B10", "1234567", "school")]
+            client.get_meals.return_value = []
+
+            search = self.request("/api/v1/neis/schools?q=school", key="mock-key")
+            meals = self.request(
+                "/api/v1/meals?school=B10%3A1234567&from=2026-11-09&to=2026-11-15",
+                key="mock-key",
+            )
+
+        self.assertEqual(search[0], 200)
+        self.assertEqual(meals, (200, {"meals": [], "stale": False}))
+        self.assertGreaterEqual(clock[0], 1001.0)
+        sleep.assert_awaited()
+        client.search_schools.assert_called_once_with("school")
+        client.get_meals.assert_called_once()
+
     def test_neis_validation_and_failures(self):
         for path in ("/api/v1/neis/schools?q=", "/api/v1/neis/schools?q=a&q=b",
                      "/api/v1/meals?school=bad&from=2026-11-09&to=2026-11-15",
