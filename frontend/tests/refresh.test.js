@@ -19,7 +19,7 @@ async function createApp() {
   const component = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
   const script = component.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
     .replace(/^\s*import .*;\s*$/gm, '');
-  const harness = `${script}\nreturn { chooseSchool, chooseNeis, refreshCalendar, changeWeek, state: () => ({ week, tableLoading, mealLoading, timetable, meals, hasMeals, tableState, mealState }) };`;
+  const harness = `${script}\nreturn { chooseSchool, chooseNeis, refreshCalendar, changeWeek, currentWeek, state: () => ({ week, tableLoading, mealLoading, timetable, meals, hasMeals, tableState, mealState }) };`;
   const javascript = ts.transpile(`(function () { ${harness} })()`, { target: ts.ScriptTarget.ES2022 });
   let now = 1_000;
   const calls = { timetable: [], meals: [] };
@@ -115,4 +115,25 @@ test('week changes abort in-flight requests and immediately load the selected we
   assert.equal(calls.meals.length, 2);
   assert.equal(calls.timetable[1].week, '2026-11-16');
   assert.equal(calls.meals[1].from, '2026-11-16');
+});
+
+test('today retains current-week results if refreshing fails', async () => {
+  const { app, calls } = await createApp();
+  app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
+  app.chooseNeis({ id: 'neis', name: '학교', region: '서울', address: '' });
+  const table = { records: [{ subject: '수학' }] };
+  const meal = { date: '2026-11-10', dishes: ['밥'] };
+  calls.timetable[0].resolve(table);
+  calls.meals[0].resolve({ meals: [meal], stale: false });
+  await new Promise(setImmediate);
+
+  app.currentWeek();
+  calls.timetable[1].reject(new Error('offline'));
+  calls.meals[1].reject(new Error('offline'));
+  await new Promise(setImmediate);
+  assert.equal(app.state().timetable, table);
+  assert.equal(app.state().meals[0], meal);
+  assert.equal(app.state().hasMeals, true);
+  assert.ok(app.state().tableState);
+  assert.ok(app.state().mealState);
 });

@@ -2,10 +2,10 @@
 
 ## Cloudflare deployment, 2026-11-10
 
-The Worker `opensigan-workers-api` and D1 database `opensigan-cache` are deployed. `wrangler.production.toml` records the non-secret bindings and Pages origin. The NEIS key has not been registered on the Worker; the repository secret is separate and does not automatically reach it. From `workers-api`, after installing Wrangler, register the key interactively without putting it in a command or Git:
+The Worker `opensigan-workers-api` and D1 database `opensigan-cache` are deployed. `wrangler.production.toml` records the non-secret bindings and Pages origin. The NEIS key has not been registered on the Worker; the repository secret is separate and does not automatically reach it. From `workers-api`, register the key interactively without putting it in a command or Git. This command uses the pinned Wrangler version through npm; paste the key only when Wrangler prompts for the secret value:
 
 ```powershell
-wrangler secret put NEIS_API_KEY --config wrangler.production.toml
+npx --yes wrangler@4.159.0 secret put NEIS_API_KEY --config wrangler.production.toml
 ```
 
 The deployed Worker returned 200 for status, the expected CORS header for the Pages origin, 503 for NEIS without a key, and 200 for one real school search and one current-week timetable (832 records). The initial search took approximately 23 seconds and a repeat returned in approximately 1.2 seconds; the timetable took approximately 4.8 seconds. These are individual wall-clock observations, not CPU measurements or a reliability benchmark. The NEIS path, distributed D1 concurrency and Cloudflare resource limits remain unverified. Do not interpret availability as permission to redistribute provider data.

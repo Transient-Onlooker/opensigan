@@ -111,7 +111,7 @@
     }
   }
   function changeWeek(delta: number) { refreshCalendar(); const next = addDays(week, delta * 7); if (next < current || next > addDays(current, 7)) return; week = next; loadTimetable(); loadMeals(); }
-  function currentWeek() { refreshCalendar(); week = current; loadTimetable(); loadMeals(); }
+  function currentWeek() { refreshCalendar(); const preserve = week === current; week = current; loadTimetable(preserve); loadMeals(preserve); }
   function changeTheme() { theme = theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   function updateClass(event: Event) {
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
