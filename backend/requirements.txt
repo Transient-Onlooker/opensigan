@@ -1,1 +1,2 @@
 pycomcigan @ git+https://github.com/hegelty/pycomcigan.git@6ac58dd6304b8bb0a3c22c6543bbcfccc2988dd1
+requests>=2.32.0
