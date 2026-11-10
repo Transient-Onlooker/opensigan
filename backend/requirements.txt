@@ -1,1 +1,1 @@
-pycomcigan @ git+https://github.com/hegelty/pycomcigan.git@e8ceaec7bad47cef946ec0174cc523f3652f42ee
+pycomcigan @ git+https://github.com/hegelty/pycomcigan.git@6ac58dd6304b8bb0a3c22c6543bbcfccc2988dd1

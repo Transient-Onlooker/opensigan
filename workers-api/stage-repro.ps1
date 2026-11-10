@@ -19,7 +19,7 @@ if ((& node --version).Trim() -ne 'v26.13.0' -or (& npm --version).Trim() -ne '1
     throw 'Expected Node.js 26.13.0 and npm 12.0.2.'
 }
 foreach ($entry in @(
-    @('pycomcigan-1.4.3-py3-none-any.whl', '9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9'),
+    @('pycomcigan-1.4.4-py3-none-any.whl', '11afe5e012826cc7fca125ae5394265e1167f56b652d782996bf51369f849a55'),
     @('pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl', 'f2c5fdc9fe8ba8ea5b827dc04fe06ad2d47e96ecbba58494bb6d5794439602b5')
 )) {
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root "wheelhouse\$($entry[0])")).Hash -ne $entry[1]) {
@@ -37,14 +37,14 @@ Copy-Item -LiteralPath (Join-Path $root 'pylock.seed.toml') -Destination (Join-P
 # path source makes pywrangler force --refresh-package, which uv rejects offline.
 $stageProject = Join-Path $stage 'pyproject.toml'
 $projectText = [IO.File]::ReadAllText($stageProject)
-$updatedProject = [regex]::Replace($projectText, '(?m)^\[tool\.uv\.sources\]\r?\npycomcigan = \{ path = "wheelhouse/pycomcigan-1\.4\.3-py3-none-any\.whl" \}\r?\n\r?\n', '')
+$updatedProject = [regex]::Replace($projectText, '(?m)^\[tool\.uv\.sources\]\r?\npycomcigan = \{ path = "wheelhouse/pycomcigan-1\.4\.[0-9]+-py3-none-any\.whl" \}\r?\n\r?\n', '')
 if ($updatedProject -eq $projectText) { throw 'Expected pycomcigan path source not found in pyproject.toml.' }
 $projectText = $updatedProject
 [IO.File]::WriteAllText($stageProject, $projectText, [Text.UTF8Encoding]::new($false))
 foreach ($name in @('timetable.py', 'neis.py')) {
     Copy-Item -LiteralPath (Join-Path $backend $name) -Destination (Join-Path $stage "backend\$name")
 }
-foreach ($name in @('pycomcigan-1.4.3-py3-none-any.whl', 'pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl')) {
+foreach ($name in @('pycomcigan-1.4.4-py3-none-any.whl', 'pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl')) {
     Copy-Item -LiteralPath (Join-Path $root "wheelhouse\$name") -Destination (Join-Path $stage 'wheelhouse')
 }
 
@@ -54,7 +54,7 @@ $lockText = [IO.File]::ReadAllText($runtimeLock)
 $wheel = Join-Path $stage 'wheelhouse\pycryptodomex-3.24.2-cp37-abi3-pyemscripten_2026_0_wasm32.whl'
 $wheelUri = ([Uri]$wheel).AbsoluteUri
 $lockText = [regex]::Replace($lockText, 'file:[^"\r\n]*/pycryptodomex-3\.24\.2-cp37-abi3-pyemscripten_2026_0_wasm32\.whl', $wheelUri)
-if (-not $lockText.Contains($wheelUri) -or -not $lockText.Contains('path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl"')) {
+if (-not $lockText.Contains($wheelUri) -or -not $lockText.Contains('path = "wheelhouse/pycomcigan-1.4.4-py3-none-any.whl"')) {
     throw 'The runtime lock seed does not contain the expected wheel paths.'
 }
 [IO.File]::WriteAllText($runtimeLock, $lockText, [Text.UTF8Encoding]::new($false))

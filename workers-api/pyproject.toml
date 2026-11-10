@@ -3,7 +3,7 @@ name = "opensigan-workers-api"
 version = "0.1.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-    "pycomcigan==1.4.3",
+    "pycomcigan==1.4.4",
     "pycryptodomex==3.24.2",
     "requests==2.34.2",
 ]
@@ -12,7 +12,7 @@ dependencies = [
 find-links = ["wheelhouse"]
 
 [tool.uv.sources]
-pycomcigan = { path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl" }
+pycomcigan = { path = "wheelhouse/pycomcigan-1.4.4-py3-none-any.whl" }
 
 [dependency-groups]
 dev = ["workers-py==1.17.9", "workers-runtime-sdk==1.9.6", "uv==0.13.4"]

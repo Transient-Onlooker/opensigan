@@ -22,8 +22,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a
 
 [[packages]]
 name = "pycomcigan"
-version = "1.4.3"
-archive = { path = "wheelhouse/pycomcigan-1.4.3-py3-none-any.whl", hashes = { sha256 = "9a3aa5c8eafd95d29f574941b4264f26480e7fc51ec5be45e37a2462b7dd85d9" } }
+version = "1.4.4"
+archive = { path = "wheelhouse/pycomcigan-1.4.4-py3-none-any.whl", hashes = { sha256 = "11afe5e012826cc7fca125ae5394265e1167f56b652d782996bf51369f849a55" } }
 
 [[packages]]
 name = "pycryptodomex"
