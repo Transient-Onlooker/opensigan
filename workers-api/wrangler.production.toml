@@ -1,0 +1,12 @@
+name = "opensigan-workers-api"
+main = "worker.py"
+compatibility_date = "2026-11-09"
+compatibility_flags = ["python_workers"]
+
+[vars]
+CORS_ALLOWED_ORIGIN = "https://transient-onlooker.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "opensigan-cache"
+database_id = "133e6b19-fac1-4982-a653-2a632dc69643"

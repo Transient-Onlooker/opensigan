@@ -25,6 +25,9 @@
   let mealState = '';
   let tableLoading = false;
   let mealLoading = false;
+  const refreshInterval = 30 * 60 * 1000;
+  let timetableRefreshAt = 0;
+  let mealsRefreshAt = 0;
   let schoolTimer: ReturnType<typeof setTimeout>;
   let neisTimer: ReturnType<typeof setTimeout>;
   let schoolRequest: AbortController | undefined;
@@ -80,6 +83,7 @@
   function loadTimetable() {
     tableRequest?.abort(); timetable = null; tableState = ''; tableLoading = false;
     if (!school) return;
+    timetableRefreshAt = Date.now() + refreshInterval;
     const controller = new AbortController(); tableRequest = controller; tableLoading = true;
     void getTimetable(school.id, week, controller.signal).then((data) => { if (!controller.signal.aborted) timetable = data; })
       .catch((error) => { if (!controller.signal.aborted) tableState = errorText(error); })
@@ -88,6 +92,7 @@
   function loadMeals() {
     mealRequest?.abort(); meals = []; mealsStale = false; mealState = ''; mealLoading = false;
     if (!school || !neis) return;
+    mealsRefreshAt = Date.now() + refreshInterval;
     const controller = new AbortController(); mealRequest = controller; mealLoading = true;
     void getMeals(neis.id, week, addDays(week, 6), controller.signal).then((data) => { if (!controller.signal.aborted) { meals = data.meals; mealsStale = data.stale; } })
       .catch((error) => { if (!controller.signal.aborted) mealState = errorText(error); })
@@ -97,7 +102,12 @@
     today = currentKoreaDate(new Date());
     current = monday(today);
     const validWeek = clampWeek(week, current);
-    if (validWeek !== week) { week = validWeek; loadTimetable(); loadMeals(); }
+    if (validWeek !== week) { week = validWeek; loadTimetable(); loadMeals(); return; }
+    if (document.visibilityState === 'visible') {
+      const now = Date.now();
+      if (school && !tableLoading && now >= timetableRefreshAt) loadTimetable();
+      if (school && neis && !mealLoading && now >= mealsRefreshAt) loadMeals();
+    }
   }
   function changeWeek(delta: number) { refreshCalendar(); const next = addDays(week, delta * 7); if (next < current || next > addDays(current, 7)) return; week = next; loadTimetable(); loadMeals(); }
   function currentWeek() { refreshCalendar(); week = current; loadTimetable(); loadMeals(); }
@@ -146,9 +156,9 @@
       <div class="table-scroll" tabindex="0" role="region" aria-label="시간표 (가로로 스크롤 가능)"><table class="timetable"><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col"><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}</small></th>{/each}</tr></thead><tbody>{#each periods as period}<tr><th scope="row"><span class="period-number">{String(period).padStart(2, '0')}</span><small>교시</small></th>{#each dates as date}<td>{#if record(date, period)}<div class="class-cell"><span>{record(date, period)?.subject}</span>{#if record(date, period)?.isChanged}<span class="change-label">변동</span>{/if}{#if record(date, period)?.teacher}<small>{record(date, period)?.teacher}</small>{/if}</div>{:else}<span class="empty-cell">—</span>{/if}</td>{/each}</tr>{/each}</tbody></table></div>{/if}
       <div class="legend"><span class="change-label">변동</span><span>수업 정보가 변동된 교시</span><span class="mobile-hint">표를 좌우로 움직여 보세요</span></div>
     </section>
-    <section class="meals-section" aria-labelledby="meals-title"><div class="section-heading"><div><p class="eyebrow">THIS WEEK</p><h2 id="meals-title">이번 주 급식</h2></div><span class="meal-range">{dateText(week)} — {dateText(addDays(week, 6))}</span></div>
+    <section class="meals-section" aria-labelledby="meals-title"><div class="section-heading"><div><p class="eyebrow">{week === current ? 'THIS WEEK' : 'NEXT WEEK'}</p><h2 id="meals-title">{week === current ? '이번 주' : '다음 주'} 급식</h2></div><span class="meal-range">{dateText(week)} — {dateText(addDays(week, 6))}</span></div>
       {#if school}<div class="neis-panel"><div><strong>급식 학교 선택</strong><p>학교명과 주소를 확인하고 직접 선택해 주세요.</p></div><div class="search-field neis-search"><label class="sr-only" for="neis">NEIS 급식 학교 찾기</label><div class="search-wrap"><span aria-hidden="true">⌕</span><input id="neis" bind:value={neisQuery} oninput={findNeis} placeholder="급식 학교 검색" autocomplete="off"/></div><span class="sr-only" aria-live="polite">{neisSearchState || (neisResults.length ? `${neisResults.length}개 급식 학교 검색 결과` : '')}</span>{#if neisResults.length || neisSearchState}<div class="search-results">{#each neisResults as item (item.id)}<button class="school-option neis-option" onclick={() => chooseNeis(item)}><strong>{item.name}</strong><small>{item.region} · {item.address}</small></button>{/each}{#if neisSearchState}<p>{neisSearchState}</p>{/if}</div>{/if}</div>{#if neis}<div class="neis-selected">✓ {neis.name} · {neis.region} · {neis.address}</div>{/if}</div>{/if}
-      {#if mealState}<div class="state-message" role="alert"><strong>급식을 불러오지 못했어요.</strong><span>{mealState}</span><button class="text-button" onclick={loadMeals}>다시 시도</button></div>{:else if !school}<div class="state-message compact">시간표 학교를 먼저 선택해 주세요.</div>{:else if !neis}<div class="state-message compact">급식을 보려면 급식 학교를 직접 선택해 주세요.</div>{:else if mealLoading}<div class="state-message compact" role="status">급식을 불러오고 있어요.</div>{:else if !sortedMeals.length}<div class="state-message compact">이번 주 등록된 급식 정보가 없어요.</div>{:else}<div class="meal-list">{#each sortedMeals as meal, i (i)}<article class="meal-row"><div class="meal-date"><strong>{dateText(meal.date)}</strong><span>{dateText(meal.date, { weekday: 'long' })}</span></div><div class="meal-type">{meal.type}</div><ul class="dishes">{#each meal.dishes as dish}<li>{dish}</li>{/each}</ul></article>{/each}</div>{/if}
+      {#if mealState}<div class="state-message" role="alert"><strong>급식을 불러오지 못했어요.</strong><span>{mealState}</span><button class="text-button" onclick={loadMeals}>다시 시도</button></div>{:else if !school}<div class="state-message compact">시간표 학교를 먼저 선택해 주세요.</div>{:else if !neis}<div class="state-message compact">급식을 보려면 급식 학교를 직접 선택해 주세요.</div>{:else if mealLoading}<div class="state-message compact" role="status">급식을 불러오고 있어요.</div>{:else if !sortedMeals.length}<div class="state-message compact">{week === current ? '이번 주' : '다음 주'} 등록된 급식 정보가 없어요.</div>{:else}<div class="meal-list">{#each sortedMeals as meal, i (i)}<article class="meal-row"><div class="meal-date"><strong>{dateText(meal.date)}</strong><span>{dateText(meal.date, { weekday: 'long' })}</span></div><div class="meal-type">{meal.type}</div><ul class="dishes">{#each meal.dishes as dish}<li>{dish}</li>{/each}</ul></article>{/each}</div>{/if}
       {#if neis && !mealLoading && !mealState && mealsStale}<p class="meal-stale">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
     </section><footer><span>오픈시간표</span><span>학교와 학급 설정은 이 기기에 저장됩니다.</span></footer>
   </main>

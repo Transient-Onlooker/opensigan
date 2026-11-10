@@ -1,6 +1,6 @@
 # 오픈시간표
 
-컴시간의 학생 시간표와 NEIS 급식을 조회하는 로컬 MVP입니다. GitHub Pages는 정적 화면만 제공하며 별도의 HTTPS API 서버와 `API_BASE_URL` 저장소 변수가 있어야 실제 조회가 가능합니다. 현재 API는 로컬 개발용이며 공개 운영 구성으로 검증되지 않았습니다.
+컴시간의 학생 시간표와 NEIS 급식을 조회하는 MVP입니다. GitHub Pages는 정적 화면을 제공하고 Cloudflare Worker가 API를 처리합니다. 실제 Worker에서 학교 검색과 시간표 조회를 각각 한 번 확인했으며, 운영 안정성과 데이터 이용 조건은 계속 검증해야 합니다.
 
 ## 로컬 실행
 
@@ -46,8 +46,8 @@ npm run build
 
 ## 배포 현황과 제한
 
-- Pages는 GitHub Actions로 빌드·배포합니다. GitHub 저장소 변수 `API_BASE_URL`에 별도로 운영되는 HTTPS API 주소가 없으면 화면에 연결 안내가 표시됩니다.
-- API는 단일 프로세스 메모리 캐시를 사용합니다. D1, 다중 인스턴스 간 잠금, 영구 캐시, 전역 속도 제한, 운영 모니터링은 아직 없습니다. 개발용 HTTP 서버를 그대로 공개하면 안 됩니다.
+- Pages는 GitHub Actions로 빌드·배포하며 저장소 변수 `API_BASE_URL`로 Worker 주소를 지정합니다. Worker 배포와 NEIS Secret 설정은 [Workers 안내](workers-api/README.md)를 따릅니다.
+- 로컬 API는 단일 프로세스 메모리 캐시를 사용하고, 배포된 Worker는 D1 캐시와 원본별 갱신 제한을 사용합니다. 분산 환경의 동시성, 운영 모니터링과 반복 안정성은 아직 검증되지 않았습니다. 개발용 HTTP 서버를 그대로 공개하면 안 됩니다.
 - 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
-- Python Workers의 실제 실행 적합성과 CPU 한도 판정은 미완료입니다. [Phase 0 보고서](phase0/REPORT.md)를 참고하세요. 현재 CPython 구현은 로컬 검증용이며 최종 호스팅 결정을 뜻하지 않습니다.
+- Python Workers의 무료 CPU 한도와 반복 실행 적합성 판정은 미완료입니다. 기존 실험은 [Phase 0 보고서](phase0/REPORT.md)를 참고하세요.
 - 실제 NEIS API 확인에는 서버 측 인증키가 필요합니다. API 키를 브라우저 번들에 포함하지 않습니다.

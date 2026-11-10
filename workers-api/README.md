@@ -1,5 +1,17 @@
 # Local Workers API spike
 
+## Cloudflare deployment, 2026-11-10
+
+The Worker `opensigan-workers-api` and D1 database `opensigan-cache` are deployed. `wrangler.production.toml` records the non-secret bindings and Pages origin. The NEIS key has not been registered on the Worker; the repository secret is separate and does not automatically reach it. From `workers-api`, after installing Wrangler, register the key interactively without putting it in a command or Git:
+
+```powershell
+wrangler secret put NEIS_API_KEY --config wrangler.production.toml
+```
+
+The deployed Worker returned 200 for status, the expected CORS header for the Pages origin, 503 for NEIS without a key, and 200 for one real school search and one current-week timetable (832 records). The initial search took approximately 23 seconds and a repeat returned in approximately 1.2 seconds; the timetable took approximately 4.8 seconds. These are individual wall-clock observations, not CPU measurements or a reliability benchmark. The NEIS path, distributed D1 concurrency and Cloudflare resource limits remain unverified. Do not interpret availability as permission to redistribute provider data.
+
+To redeploy, first create a fresh stage with `stage-repro.ps1` below. Copy `wrangler.production.toml` into its `bundle` directory, then run the stage's `node_modules/.bin/wrangler` with `deploy --config <stage>/bundle/wrangler.production.toml`. This bundles the pinned Python dependencies and backend modules. Never copy `.env` or the NEIS key into the bundle. The local-only instructions and observations below remain relevant to reproducibility, but statements about no remote deployment describe the earlier experiments.
+
 The local Worker observations below were made with pycomcigan 1.4.3 unless explicitly stated otherwise. Version 1.4.4 changes the upstream HTTP transport; those earlier observations do not establish its runtime compatibility.
 
 `worker.py` imports the existing timetable functions from `../backend/timetable.py` and `NEISClient` and `School` from `../backend/neis.py`. The source of truth stays there. Wrangler 4.159.0 does not recurse into the existing Windows `backend` junction when collecting Python modules, so importing from that junction fails in the actual Worker bundle. The CPython tests alone cannot detect this: they add the repository root to `sys.path`.
@@ -16,7 +28,7 @@ On 2026-11-10, a local Wrangler Worker with the local D1 schema wrote fixture sc
 
 School searches, timetables, NEIS searches and meals require `env.DB` and use D1 with a 30-minute TTL. Expired results are served with `stale: true` for up to seven days after expiry when a refresh fails or another request holds the lease; without a usable previous result, duplicate requests and failure backoff return 503. Cache errors never trigger an unrestricted upstream bypass. Leases last 120 seconds, are not renewed, and fence expired owners from writing; a slow provider may still overlap a takeover. Existing synchronous providers are unchanged.
 
-Each isolate opportunistically prunes up to 100 abandoned rows on its first request and at six-hour intervals after success; failures retry after five minutes. Active leases, backoff and recent rate history are preserved. This is not a global schedule or storage limit; cleanup runs only with traffic. SQLite tests cover the cleanup policy, but the new cleanup path has not yet been verified in a local Python Worker with D1 or in distributed Cloudflare D1.
+Each isolate opportunistically prunes up to 100 abandoned rows on its first request and at six-hour intervals after success; failures retry after five minutes. Active leases, backoff and recent rate history are preserved. This is not a global schedule or storage limit; cleanup runs only with traffic. A local Python Worker with local D1 removed two expired fixture rows and preserved fresh and usable stale rows, active leases, backoff and recent rate history. Distributed Cloudflare D1 behavior remains unverified.
 
 Cold requests encountering an active lease wait up to three 50 ms intervals and recheck the cache and lease; a longer contention or failure backoff still returns 503. Stale data is returned immediately.
 

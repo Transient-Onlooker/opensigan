@@ -138,6 +138,24 @@ class ContractTest(unittest.TestCase):
             self.assertEqual(self.request("/api/v1/timetable?school=1%3Aschool&week=" + week), (200, expected))
             fetch.assert_called_once_with("1:school", week)
 
+    def test_school_search_maps_provider_rows_and_caches_result(self):
+        fixture = [
+            [6347, "region A", "Example", 76524],
+            [9999, "region B", "Example", 76525],
+        ]
+        with patch("pycomcigan.get_school_code", return_value=fixture) as provider:
+            status, body = self.request("/api/v1/schools?q=Example")
+            self.assertEqual((status, body), (200, {
+                "schools": [
+                    {"id": "76524:Example", "name": "Example", "region": "region A"},
+                    {"id": "76525:Example", "name": "Example", "region": "region B"},
+                ],
+                "stale": False,
+            }))
+            provider.assert_called_once_with("Example")
+            self.assertEqual(self.request("/schools?q=Example"), (200, body))
+            provider.assert_called_once_with("Example")
+
     def test_upstream_errors_do_not_leak(self):
         for error in (ValueError("private data"), RuntimeError("private data")):
             with patch.object(worker, "search_schools", side_effect=error):
