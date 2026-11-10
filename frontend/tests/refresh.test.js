@@ -19,11 +19,11 @@ async function createApp() {
   const component = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
   const script = component.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
     .replace(/^\s*import .*;\s*$/gm, '');
-  const harness = `${script}\nreturn { chooseSchool, chooseNeis, refreshCalendar, changeWeek, state: () => ({ week, tableLoading, mealLoading }) };`;
+  const harness = `${script}\nreturn { chooseSchool, chooseNeis, refreshCalendar, changeWeek, state: () => ({ week, tableLoading, mealLoading, timetable, meals, hasMeals, tableState, mealState }) };`;
   const javascript = ts.transpile(`(function () { ${harness} })()`, { target: ts.ScriptTarget.ES2022 });
   let now = 1_000;
   const calls = { timetable: [], meals: [] };
-  const pending = (list, id, args) => new Promise((resolve) => list.push({ id, ...args, resolve }));
+  const pending = (list, id, args) => new Promise((resolve, reject) => list.push({ id, ...args, resolve, reject }));
   const context = {
     onMount() {}, currentKoreaDate: () => '2026-11-10', monday, addDays, clampWeek,
     document: { visibilityState: 'visible' },
@@ -69,6 +69,35 @@ test('refreshes each visible dataset at 30 minutes and coalesces repeated visibi
   app.refreshCalendar();
   assert.equal(calls.timetable.length, 3);
   assert.equal(calls.meals.length, 3);
+});
+
+test('automatic refresh retains previous results when requests fail, but clears them for a new week', async () => {
+  const { app, calls, setNow } = await createApp();
+  app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
+  app.chooseNeis({ id: 'neis', name: '학교', region: '서울', address: '' });
+  const table = { records: [{ subject: '수학' }] };
+  const meal = { date: '2026-11-10', dishes: ['밥'] };
+  calls.timetable[0].resolve(table);
+  calls.meals[0].resolve({ meals: [meal], stale: false });
+  await new Promise(setImmediate);
+
+  setNow(1_000 + 30 * 60 * 1000);
+  app.refreshCalendar();
+  assert.equal(app.state().timetable, table);
+  assert.equal(app.state().meals[0], meal);
+  calls.timetable[1].reject(new Error('offline'));
+  calls.meals[1].reject(new Error('offline'));
+  await new Promise(setImmediate);
+  assert.equal(app.state().timetable, table);
+  assert.equal(app.state().meals[0], meal);
+  assert.equal(app.state().hasMeals, true);
+  assert.ok(app.state().tableState);
+  assert.ok(app.state().mealState);
+
+  app.changeWeek(1);
+  assert.equal(app.state().timetable, null);
+  assert.equal(app.state().hasMeals, false);
+  assert.equal(app.state().meals.length, 0);
 });
 
 test('week changes abort in-flight requests and immediately load the selected week', async () => {

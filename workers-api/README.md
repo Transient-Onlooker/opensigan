@@ -42,7 +42,7 @@ On 2026-11-10, a local Python Worker and fresh local D1 using this origin schema
 
 The Worker injects a synchronous `requests` transport for NEIS with the provider's timeout and redirects disabled. HTTP errors and requests exceptions become sanitized network errors; urllib3 connection-pool debug logging is suppressed because the URL contains the NEIS key. A separate local experiment reported that `urllib.request` disconnected while `requests` returned a NEIS sample with HTTP 200/INFO-000; this integration itself has only mock coverage so far.
 
-**Incomplete:** SQLite/mock tests do not establish Cloudflare D1 consistency, Python binding compatibility, clock behavior, or distributed concurrency. Validate those in an authorized distributed environment before relying on this cache. The all-zero database ID below is a local placeholder, not a provisioned remote database. No remote deployment is authorized by these instructions.
+**Incomplete:** SQLite/mock tests do not establish Cloudflare D1 consistency, clock behavior, or distributed concurrency. The remote Worker and D1 have handled the limited real requests described above, but distributed behavior still needs validation. The all-zero database ID in the local configuration is a placeholder; the deployed database is configured separately in `wrangler.production.toml`.
 
 ## Recreate the local prototype database
 
