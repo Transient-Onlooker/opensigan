@@ -2,13 +2,18 @@
 name = "opensigan-phase0-mvp"
 version = "0.0.1"
 requires-python = ">=3.13,<3.14"
-dependencies = ["pycomcigan==1.4.4"]
+dependencies = ["pycomcigan==1.4.4", "pycryptodomex==3.24.2"]
 
 [tool.uv]
 find-links = ["wheelhouse"]
 
 [tool.uv.sources]
 pycomcigan = { path = "wheelhouse/pycomcigan-1.4.4-py3-none-any.whl" }
+pycryptodomex = [{ index = "pypi", marker = "sys_platform != 'emscripten'" }]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
 
 [dependency-groups]
 dev = ["workers-py==1.17.9", "workers-runtime-sdk==1.9.6", "uv==0.13.4"]

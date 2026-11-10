@@ -37,7 +37,7 @@ Copy-Item -LiteralPath (Join-Path $root 'pylock.seed.toml') -Destination (Join-P
 # path source makes pywrangler force --refresh-package, which uv rejects offline.
 $stageProject = Join-Path $stage 'pyproject.toml'
 $projectText = [IO.File]::ReadAllText($stageProject)
-$updatedProject = [regex]::Replace($projectText, '(?m)^\[tool\.uv\.sources\]\r?\npycomcigan = \{ path = "wheelhouse/pycomcigan-1\.4\.[0-9]+-py3-none-any\.whl" \}\r?\n\r?\n', '')
+$updatedProject = [regex]::Replace($projectText, '(?m)^\[tool\.uv\.sources\]\r?\npycomcigan = \{ path = "wheelhouse/pycomcigan-1\.4\.[0-9]+-py3-none-any\.whl" \}\r?\npycryptodomex = \{ index = "pypi" \}\r?\n\r?\n', '')
 if ($updatedProject -eq $projectText) { throw 'Expected pycomcigan path source not found in pyproject.toml.' }
 $projectText = $updatedProject
 [IO.File]::WriteAllText($stageProject, $projectText, [Text.UTF8Encoding]::new($false))

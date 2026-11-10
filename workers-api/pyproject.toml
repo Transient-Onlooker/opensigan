@@ -13,6 +13,11 @@ find-links = ["wheelhouse"]
 
 [tool.uv.sources]
 pycomcigan = { path = "wheelhouse/pycomcigan-1.4.4-py3-none-any.whl" }
+pycryptodomex = { index = "pypi" }
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
 
 [dependency-groups]
 dev = ["workers-py==1.17.9", "workers-runtime-sdk==1.9.6", "uv==0.13.4"]

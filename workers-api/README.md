@@ -1,5 +1,7 @@
 # Local Workers API spike
 
+The local Worker observations below were made with pycomcigan 1.4.3 unless explicitly stated otherwise. Version 1.4.4 changes the upstream HTTP transport; those earlier observations do not establish its runtime compatibility.
+
 `worker.py` imports the existing timetable functions from `../backend/timetable.py` and `NEISClient` and `School` from `../backend/neis.py`. The source of truth stays there. Wrangler 4.159.0 does not recurse into the existing Windows `backend` junction when collecting Python modules, so importing from that junction fails in the actual Worker bundle. The CPython tests alone cannot detect this: they add the repository root to `sys.path`.
 
 The historical `stage-local.ps1` creates a new ignored `.runtime/stage-<id>` and copies `worker.py`, `d1_cache.py`, `schema.sql`, and the original `backend/timetable.py` and `backend/neis.py` into ordinary directories there. It copies the already-synced `python_modules`, and links the existing `.venv-workers` and local Wrangler `node_modules`. These are build inputs, not independently maintained project source. The script checks both sync tokens against `pyproject.toml`, `pylock.toml`, and pywrangler 1.17.9. It requires already-prepared dependencies; if they are missing or stale, prepare them separately before running. The staged `pyproject.toml` retains its original relative wheel path and is not intended for a fresh sync inside the stage. For a fresh dependency sync, use `stage-repro.ps1` below.
