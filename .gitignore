@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 node_modules/
 dist/
+frontend/public/openapi.yaml
 .env
 .env.*
 !.env.example

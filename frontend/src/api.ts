@@ -4,6 +4,9 @@ export interface TimetableRecord { grade: number; class: number | string; date: 
 export interface TimetableResponse { schoolId: string; weekStart: string; records: TimetableRecord[]; sourceUpdatedAt: string | null; fetchedAt: string; stale: boolean }
 export interface Meal { date: string; type: string; dishes: string[] }
 export interface MealsResponse { meals: Meal[]; stale: boolean }
+export interface HistoryLesson { subject: string; teacher: string | null }
+export interface TimetableChange { observedAt: string; grade: number; class: number | string; date: string; period: number; type: string; before: HistoryLesson | null; after: HistoryLesson | null }
+export interface TimetableHistoryResponse { changes: TimetableChange[]; nextCursor: string | null }
 
 const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 export const apiNotConfigured = !base && location.hostname.endsWith('.github.io');
@@ -15,7 +18,15 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: { Accept: 'application/json' },
     });
-    if (!response.ok) throw new Error(`요청을 완료하지 못했어요. (${response.status})`);
+    if (!response.ok) {
+      if (response.status === 503) {
+        const body = typeof response.clone === 'function'
+          ? await response.clone().json().catch(() => null) as { code?: string } | null
+          : null;
+        if (body?.code === 'history_disabled') throw Object.assign(new Error('이 학교는 변경 이력을 제공하지 않습니다.'), { code: body.code });
+      }
+      throw new Error(`요청을 완료하지 못했어요. (${response.status})`);
+    }
     return await response.json() as T;
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -28,3 +39,4 @@ export const searchSchools = (q: string, signal?: AbortSignal) => get<{ schools:
 export const searchNeisSchools = (q: string, signal?: AbortSignal) => get<{ schools: NeisSchool[]; stale: boolean }>(`/api/v1/neis/schools?q=${encodeURIComponent(q)}`, signal);
 export const getTimetable = (school: string, week: string, signal?: AbortSignal) => get<TimetableResponse>(`/api/v1/timetable?school=${encodeURIComponent(school)}&week=${encodeURIComponent(week)}`, signal);
 export const getMeals = (school: string, from: string, to: string, signal?: AbortSignal) => get<MealsResponse>(`/api/v1/meals?school=${encodeURIComponent(school)}&from=${from}&to=${to}`, signal);
+export const getTimetableHistory = (school: string, week: string, cursor?: string | null, signal?: AbortSignal) => get<TimetableHistoryResponse>(`/api/v1/timetable/history?school=${encodeURIComponent(school)}&week=${encodeURIComponent(week)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal);

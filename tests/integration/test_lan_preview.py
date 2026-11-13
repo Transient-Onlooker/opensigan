@@ -18,6 +18,8 @@ class LanPreviewTests(unittest.TestCase):
             root = Path(directory)
             (root / "assets").mkdir()
             (root / "index.html").write_text("<title>OpenSigan</title>", encoding="utf-8")
+            (root / "api-docs.html").write_text("API docs", encoding="utf-8")
+            (root / "openapi.yaml").write_text("openapi: 3.1.0", encoding="utf-8")
             (root / "assets" / "index-test.js").write_text("export {};", encoding="utf-8")
             with patch("deploy.lan_preview.FRONTEND_DIR", root), \
                     ThreadingHTTPServer(("127.0.0.1", 0), PreviewHandler) as server:
@@ -35,6 +37,8 @@ class LanPreviewTests(unittest.TestCase):
 
                     self.assertEqual(request("GET", "/opensigan/"), (200, b"<title>OpenSigan</title>"))
                     self.assertEqual(request("HEAD", "/opensigan/assets/index-test.js"), (200, b""))
+                    self.assertEqual(request("GET", "/opensigan/api-docs.html"), (200, b"API docs"))
+                    self.assertEqual(request("GET", "/opensigan/openapi.yaml"), (200, b"openapi: 3.1.0"))
                     status, body = request("GET", "/api/v1/status")
                     self.assertEqual(status, 200)
                     self.assertEqual(json.loads(body)["status"], "ok")

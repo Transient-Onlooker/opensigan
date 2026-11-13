@@ -21,6 +21,8 @@ class PreviewHandler(Handler, SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in {"/", "/opensigan", "/opensigan/"}:
             self.path = "/index.html"
+        elif path in {"/opensigan/api-docs.html", "/opensigan/openapi.yaml"}:
+            self.path = path.removeprefix("/opensigan")
         elif re.fullmatch(r"/opensigan/assets/[\w-][\w.-]*", path):
             self.path = path.removeprefix("/opensigan")
         else:

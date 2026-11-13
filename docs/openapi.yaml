@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: Opensigan API
+  version: 1.0.0
+  description: |-
+    School timetable, school search, and meal data. All examples are synthetic.
+    Responses from cached data include `stale`; the timetable endpoint also
+    returns `cacheStatus` (`hit`, `miss`, or `stale`). The history endpoint returns
+    observed timetable changes in cursor-paginated form.
+servers:
+  - url: /
+    description: Same origin as the documentation page; relative requests only.
+tags:
+  - name: System
+  - name: Schools
+  - name: Timetable
+  - name: Meals
+  - name: History
+paths:
+  /api/v1/status:
+    get:
+      tags: [System]
+      summary: Check process liveness
+      responses:
+        '200':
+          description: Process is responding; upstream providers are not checked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Status' }
+              example: { status: ok, scope: process liveness }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/schools:
+    get:
+      tags: [Schools]
+      summary: Search Comcigan schools
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 50 }
+          example: 봄빛고등학교
+      responses:
+        '200':
+          description: Matching schools.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SchoolSearchResponse' }
+              example:
+                schools: [{ id: '2:봄빛고등학교', name: 봄빛고등학교, region: 서울특별시 }]
+                stale: false
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/UpstreamUnavailable' }
+  /api/v1/neis/schools:
+    get:
+      tags: [Schools]
+      summary: Search NEIS schools
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 50 }
+          example: 봄빛고등학교
+      responses:
+        '200':
+          description: Matching NEIS schools.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NeisSchoolSearchResponse' }
+              example:
+                schools: [{ id: 'B10:1234567', name: 봄빛고등학교, region: 고등학교, address: 서울특별시 예시구 예시로 1 }]
+                stale: false
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/UpstreamUnavailable' }
+  /api/v1/timetable:
+    get:
+      tags: [Timetable]
+      summary: Get a school's timetable for a week
+      parameters:
+        - name: school
+          in: query
+          required: true
+          schema: { type: string, pattern: '^[0-9]+:[^:]{1,50}$' }
+          example: '2:봄빛고등학교'
+        - name: week
+          in: query
+          required: true
+          description: Monday of the current or following week (Asia/Seoul).
+          schema: { type: string, format: date }
+          example: '2026-11-16'
+      responses:
+        '200':
+          description: Timetable records for the requested week.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimetableResponse' }
+              example:
+                schoolId: '2:봄빛고등학교'
+                weekStart: '2026-11-16'
+                records: [{ grade: 1, class: 2, date: '2026-11-16', period: 1, subject: 수학, teacher: 교사A, isChanged: false }]
+                sourceUpdatedAt: '2026-11-13T18:00:00+09:00'
+                fetchedAt: '2026-11-14T01:00:00Z'
+                stale: false
+                cacheStatus: miss
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/UpstreamUnavailable' }
+  /api/v1/meals:
+    get:
+      tags: [Meals]
+      summary: Get meals for a NEIS school
+      parameters:
+        - name: school
+          in: query
+          required: true
+          schema: { type: string, pattern: '^[A-Z][0-9]{2}:[0-9]{7}$' }
+          example: 'B10:1234567'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: '2026-11-16'
+        - name: to
+          in: query
+          required: true
+          description: Inclusive end date; range may cover at most seven days.
+          schema: { type: string, format: date }
+          example: '2026-11-22'
+      responses:
+        '200':
+          description: Meals in the requested date range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MealsResponse' }
+              example:
+                meals: [{ date: '2026-11-16', type: 중식, dishes: [현미밥, 미역국, 과일] }]
+                stale: false
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/UpstreamUnavailable' }
+  /api/v1/timetable/history:
+    get:
+      tags: [History]
+      summary: List observed timetable changes
+      description: |-
+        Returns observed changes, not a complete historical timetable. Pass
+        `nextCursor` back as `cursor` to fetch the next page. History is kept
+        for 30 days, and the first observation establishes a baseline.
+      parameters:
+        - name: school
+          in: query
+          required: true
+          schema: { type: string, pattern: '^[0-9]+:[^:]{1,50}$' }
+          example: '2:봄빛고등학교'
+        - name: week
+          in: query
+          required: true
+          description: Monday date for the timetable week.
+          schema: { type: string, format: date }
+          example: '2026-11-16'
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+          example: '42'
+      responses:
+        '200':
+          description: One page of observed changes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryResponse' }
+              example:
+                changes:
+                  - observedAt: '2026-11-14T01:00:00Z'
+                    grade: 1
+                    class: 2
+                    date: '2026-11-16'
+                    period: 3
+                    type: changed
+                    before: { subject: 과학, teacher: 교사A }
+                    after: { subject: 수학, teacher: 교사A }
+                nextCursor: '42'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/UpstreamUnavailable' }
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code: { type: string, enum: [invalid_request, not_found, method_not_allowed, rate_limited, upstream_unavailable, history_disabled] }
+      additionalProperties: true
+      example: { error: Invalid query parameter, code: invalid_request }
+    Status:
+      type: object
+      required: [status, scope]
+      properties:
+        status: { const: ok }
+        scope: { const: process liveness }
+      additionalProperties: false
+    CacheStatus:
+      type: string
+      description: Cache result for this response.
+      enum: [hit, miss, stale]
+    School:
+      type: object
+      required: [id, name, region]
+      properties:
+        id: { type: string, description: Provider-specific school identifier. }
+        name: { type: string }
+        region: { type: string }
+        address: { type: string }
+      additionalProperties: false
+    SchoolSearchResponse:
+      type: object
+      required: [schools, stale]
+      properties:
+        schools: { type: array, items: { $ref: '#/components/schemas/School' } }
+        stale: { type: boolean }
+      additionalProperties: false
+    NeisSchoolSearchResponse:
+      type: object
+      required: [schools, stale]
+      properties:
+        schools:
+          type: array
+          items:
+            allOf:
+              - { $ref: '#/components/schemas/School' }
+              - type: object
+                required: [address]
+                properties: { address: { type: string } }
+        stale: { type: boolean }
+      additionalProperties: false
+    TimetableRecord:
+      type: object
+      required: [grade, class, date, period, subject, teacher, isChanged]
+      properties:
+        grade: { type: integer, minimum: 0 }
+        class: { oneOf: [{ type: integer }, { type: string }] }
+        date: { type: string, format: date }
+        period: { type: integer, minimum: 1 }
+        subject: { type: string }
+        teacher: { type: [string, 'null'] }
+        isChanged: { type: boolean }
+      additionalProperties: false
+    TimetableResponse:
+      type: object
+      required: [schoolId, weekStart, records, sourceUpdatedAt, fetchedAt, stale]
+      properties:
+        schoolId: { type: string }
+        weekStart: { type: string, format: date }
+        records: { type: array, items: { $ref: '#/components/schemas/TimetableRecord' } }
+        sourceUpdatedAt: { type: [string, 'null'], format: date-time }
+        fetchedAt: { type: string, format: date-time }
+        stale: { type: boolean }
+        cacheStatus: { $ref: '#/components/schemas/CacheStatus' }
+      additionalProperties: false
+    Meal:
+      type: object
+      required: [date, type, dishes]
+      properties:
+        date: { type: string, format: date }
+        type: { type: string }
+        dishes: { type: array, items: { type: string } }
+      additionalProperties: false
+    MealsResponse:
+      type: object
+      required: [meals, stale]
+      properties:
+        meals: { type: array, items: { $ref: '#/components/schemas/Meal' } }
+        stale: { type: boolean }
+      additionalProperties: false
+    HistoryChange:
+      type: object
+      required: [observedAt, grade, class, date, period, type, before, after]
+      properties:
+        observedAt: { type: string, format: date-time }
+        grade: { type: integer, minimum: 0 }
+        class: { oneOf: [{ type: integer }, { type: string }] }
+        date: { type: string, format: date }
+        period: { type: integer, minimum: 1 }
+        type: { type: string, enum: [added, deleted, changed] }
+        before:
+          oneOf:
+            - { $ref: '#/components/schemas/SubjectTeacher' }
+            - { type: 'null' }
+        after:
+          oneOf:
+            - { $ref: '#/components/schemas/SubjectTeacher' }
+            - { type: 'null' }
+      additionalProperties: false
+    SubjectTeacher:
+      type: object
+      required: [subject, teacher]
+      properties:
+        subject: { type: string }
+        teacher: { type: string }
+      additionalProperties: false
+    HistoryResponse:
+      type: object
+      required: [changes, nextCursor]
+      properties:
+        changes: { type: array, items: { $ref: '#/components/schemas/HistoryChange' } }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null when exhausted. }
+      additionalProperties: false
+  responses:
+    BadRequest:
+      description: Invalid or missing query parameter.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Invalid week, code: invalid_request }
+    NotFound:
+      description: No route matches this path.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Not found, code: not_found }
+    TooManyRequests:
+      description: Provider or deployment rate limit reached; retry later.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying, when supplied by the server.
+          schema: { type: integer, minimum: 0 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Rate limit exceeded, code: rate_limited }
+    UpstreamUnavailable:
+      description: Required provider, credentials, or cache is unavailable.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Upstream unavailable, code: upstream_unavailable }

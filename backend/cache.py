@@ -20,7 +20,10 @@ class Cache:
         self.guard = threading.Lock()
         self.locks = tuple(threading.Lock() for _ in range(lock_stripes))
 
-    def get(self, key, fetch):
+    def get(self, key, fetch, *, with_status=False):
+        def output(value, status):
+            return (value, status) if with_status else value
+
         now = time.monotonic()
         with self.guard:
             entry = self.entries.get(key)
@@ -28,10 +31,10 @@ class Cache:
                 value, fetched_at, retry_after = entry
                 if value is not None and now - fetched_at < self.ttl:
                     self.entries.move_to_end(key)
-                    return json.loads(value)
+                    return output(json.loads(value), "hit")
                 if retry_after > now:
                     if value is not None:
-                        return self._stale(value)
+                        return output(self._stale(value), "stale")
                     raise RuntimeError("cached fetch failure is in backoff")
 
         lock = self.locks[hash(key) % len(self.locks)]
@@ -47,10 +50,10 @@ class Cache:
                     previous_value = value
                     previous_fetched_at = fetched_at
                     if value is not None and now - fetched_at < self.ttl:
-                        return json.loads(value)
+                        return output(json.loads(value), "hit")
                     if retry_after > now:
                         if value is not None:
-                            return self._stale(value)
+                            return output(self._stale(value), "stale")
                         raise RuntimeError("cached fetch failure is in backoff")
 
             try:
@@ -66,7 +69,7 @@ class Cache:
                 with self.guard:
                     self._store(key, previous_value, previous_fetched_at, now + self.retry_delay)
                 if previous_value is not None:
-                    return self._stale(previous_value)
+                    return output(self._stale(previous_value), "stale")
                 raise
 
             with self.guard:
@@ -76,8 +79,8 @@ class Cache:
                     old = self.entries.get(key)
                     if old and old[0] is not None:
                         self._store(key, old[0], old[1], time.monotonic() + self.retry_delay)
-                        return self._stale(old[0])
-            return json.loads(cached)
+                        return output(self._stale(old[0]), "stale")
+            return output(json.loads(cached), "miss")
 
     @staticmethod
     def _stale(value):

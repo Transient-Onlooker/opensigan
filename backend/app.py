@@ -3,8 +3,11 @@ import logging
 import os
 import re
 import socketserver
+import threading
+import time
 import wsgiref.simple_server
-from datetime import date
+from collections import OrderedDict, deque
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -14,6 +17,33 @@ from backend.timetable import fetch_timetable, search_schools, validate_timetabl
 
 cache = Cache()
 logger = logging.getLogger("opensigan")
+_rate_lock = threading.Lock()
+_rate_clients = OrderedDict()
+
+
+def _rate_allowed(client):
+    now = time.monotonic()
+    with _rate_lock:
+        while _rate_clients and next(iter(_rate_clients.values()))[-1] <= now - 60:
+            _rate_clients.popitem(last=False)
+        if client not in _rate_clients and len(_rate_clients) >= 4096:
+            _rate_clients.popitem(last=False)
+        requests = _rate_clients.setdefault(client, deque())
+        while requests and requests[0] <= now - 60:
+            requests.popleft()
+        _rate_clients.move_to_end(client)
+        if len(requests) >= 60:
+            return max(1, int(61 - (now - requests[0])))
+        requests.append(now)
+        return 0
+
+
+def _history_store():
+    path = os.environ.get("OPENCIGAN_HISTORY_DB", "").strip()
+    if not path:
+        return None
+    from backend.history import HistoryStore
+    return HistoryStore(path)
 
 
 def _query_param(params, key, limit):
@@ -23,7 +53,7 @@ def _query_param(params, key, limit):
     return values[0].strip()
 
 
-def dispatch_request(method, path, query_string, cache_instance=None):
+def dispatch_request(method, path, query_string, cache_instance=None, client=None, request_origin=None):
     current_cache = cache if cache_instance is None else cache_instance
     origin = os.environ.get("ALLOWED_ORIGIN", "")
 
@@ -32,19 +62,30 @@ def dispatch_request(method, path, query_string, cache_instance=None):
         "Cache-Control": "no-store",
     }
     if origin:
-        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin"
+    if origin and (request_origin is None or request_origin in [item.strip() for item in origin.split(",")]):
+        headers["Access-Control-Allow-Origin"] = request_origin or origin.split(",")[0].strip()
+        headers["Access-Control-Expose-Headers"] = "Retry-After"
 
     if method == "OPTIONS":
         headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
         headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        headers["Access-Control-Expose-Headers"] = "Retry-After"
         headers["Content-Length"] = "0"
         return 204, headers, b""
 
     if method not in ("GET", "HEAD"):
-        body = json.dumps({"error": "지원하지 않는 메서드입니다"}, ensure_ascii=False).encode("utf-8")
+        body = json.dumps({"error": "지원하지 않는 메서드입니다", "code": "method_not_allowed"}, ensure_ascii=False).encode("utf-8")
         headers["Content-Length"] = str(len(body))
         return 405, headers, body
 
+    if client and path != "/api/v1/status":
+        retry = _rate_allowed(client)
+        if retry:
+            body = json.dumps({"error": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", "code": "rate_limited"}, ensure_ascii=False).encode("utf-8")
+            headers["Retry-After"] = str(retry)
+            headers["Content-Length"] = str(len(body))
+            return 429, headers, body
     query = parse_qs(query_string)
     try:
         if path == "/api/v1/status":
@@ -65,7 +106,34 @@ def dispatch_request(method, path, query_string, cache_instance=None):
                 raise ValueError("학교 식별자가 올바르지 않습니다")
             week = _query_param(query, "week", 10)
             validate_timetable_week(week)
-            result = current_cache.get(("timetable", school, week), lambda: fetch_timetable(school, week))
+            def fetch_and_record():
+                started_at = datetime.now(timezone.utc).isoformat()
+                data = fetch_timetable(school, week)
+                try:
+                    store = _history_store()
+                    if store is not None and not data.get("stale", False):
+                        store.observe(school, week, data["records"], observed_at=data["fetchedAt"], started_at=started_at)
+                except Exception:
+                    logger.exception("history recording failed")
+                return data
+
+            result, cache_status = current_cache.get(("timetable", school, week), fetch_and_record, with_status=True)
+            result["cacheStatus"] = cache_status
+        elif path == "/api/v1/timetable/history":
+            school = _query_param(query, "school", 100)
+            if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school):
+                raise ValueError("학교 식별자가 올바르지 않습니다")
+            week = _query_param(query, "week", 10)
+            parsed_week = date.fromisoformat(week)
+            if parsed_week.isoformat() != week or parsed_week.weekday() != 0:
+                raise ValueError("주 시작일이 올바르지 않습니다")
+            cursor = _query_param(query, "cursor", 100) if "cursor" in query else None
+            store = _history_store()
+            if store is None:
+                body = json.dumps({"error": "변경 이력 저장이 활성화되지 않았습니다", "code": "history_disabled"}, ensure_ascii=False).encode("utf-8")
+                headers["Content-Length"] = str(len(body))
+                return 503, headers, body
+            result = store.list(school, week, cursor=cursor)
         elif path == "/api/v1/neis/schools":
             name = _query_param(query, "q", 50)
             if not os.environ.get("NEIS_API_KEY", "").strip():
@@ -119,7 +187,7 @@ def dispatch_request(method, path, query_string, cache_instance=None):
 
             result = current_cache.get(("meals", school_id, start, end), fetch_meals)
         else:
-            body = json.dumps({"error": "요청한 경로가 없습니다"}, ensure_ascii=False).encode("utf-8")
+            body = json.dumps({"error": "요청한 경로가 없습니다", "code": "not_found"}, ensure_ascii=False).encode("utf-8")
             headers["Content-Length"] = str(len(body))
             return 404, headers, body
 
@@ -127,13 +195,13 @@ def dispatch_request(method, path, query_string, cache_instance=None):
         headers["Content-Length"] = str(len(body))
         return 200, headers, body
     except ValueError as exc:
-        body = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
+        body = json.dumps({"error": str(exc), "code": "invalid_request"}, ensure_ascii=False).encode("utf-8")
         headers["Content-Length"] = str(len(body))
         return 400, headers, body
     except Exception:
         logger.exception("upstream request failed")
         body = json.dumps(
-            {"error": "데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."},
+            {"error": "데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.", "code": "upstream_unavailable"},
             ensure_ascii=False,
         ).encode("utf-8")
         headers["Content-Length"] = str(len(body))
@@ -141,9 +209,20 @@ def dispatch_request(method, path, query_string, cache_instance=None):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _unsupported(self):
+        parts = urlsplit(self.path)
+        status_code, headers, body = dispatch_request(self.command, parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"))
+        self.send_response(status_code)
+        for key, val in headers.items():
+            self.send_header(key, val)
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_POST = do_PUT = do_PATCH = do_DELETE = _unsupported
+
     def do_OPTIONS(self):
         parts = urlsplit(self.path)
-        status_code, headers, body = dispatch_request("OPTIONS", parts.path, parts.query, cache)
+        status_code, headers, body = dispatch_request("OPTIONS", parts.path, parts.query, cache, request_origin=self.headers.get("Origin"))
         self.send_response(status_code)
         for key, val in headers.items():
             self.send_header(key, val)
@@ -151,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         parts = urlsplit(self.path)
-        status_code, headers, body = dispatch_request("HEAD", parts.path, parts.query, cache)
+        status_code, headers, body = dispatch_request("HEAD", parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"))
         self.send_response(status_code)
         for key, val in headers.items():
             self.send_header(key, val)
@@ -159,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parts = urlsplit(self.path)
-        status_code, headers, body = dispatch_request("GET", parts.path, parts.query, cache)
+        status_code, headers, body = dispatch_request("GET", parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"))
         self.send_response(status_code)
         for key, val in headers.items():
             self.send_header(key, val)
@@ -189,6 +268,7 @@ _STATUS_PHRASES = {
     400: "400 Bad Request",
     404: "404 Not Found",
     405: "405 Method Not Allowed",
+    429: "429 Too Many Requests",
     500: "500 Internal Server Error",
     503: "503 Service Unavailable",
 }
@@ -207,6 +287,8 @@ def make_app(cache_instance=None):
             path=path,
             query_string=query_string,
             cache_instance=cache_instance,
+            client=environ.get("REMOTE_ADDR"),
+            request_origin=environ.get("HTTP_ORIGIN"),
         )
 
         status_line = _STATUS_PHRASES.get(status_code, f"{status_code} Unknown")
