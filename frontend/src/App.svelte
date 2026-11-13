@@ -1,23 +1,28 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { currentKoreaDate, monday, addDays, clampWeek } from './date';
+  import { resolveMealSchool, mealSchoolCandidates } from './neis-match';
   import { apiNotConfigured, getMeals, getTimetable, searchSchools, searchNeisSchools, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse } from './api';
 
   let school: School | null = null;
   let neis: NeisSchool | null = null;
   let schoolQuery = '';
-  let neisQuery = '';
   let schoolResults: School[] = [];
   let neisResults: NeisSchool[] = [];
   let schoolSearchState = '';
   let neisSearchState = '';
+  let neisLoading = false;
+  let schoolEditorOpen = true;
+  let view: 'timetable' | 'meals' = 'timetable';
   let grade = 1;
   let classroom = 1;
   let classError = false;
   let today = currentKoreaDate(new Date());
   let current = monday(today);
   let week = current;
-  let theme: 'light' | 'dark' = 'dark';
+  let mealDate = today;
+  let dateError = '';
+  let theme: 'light' | 'dark' = 'light';
   let timetable: TimetableResponse | null = null;
   let meals: Meal[] = [];
   let hasMeals = false;
@@ -26,26 +31,33 @@
   let mealState = '';
   let tableLoading = false;
   let mealLoading = false;
+  let mealDataKey = '';
+  let mealRequestKey = '';
+  const mealTypes = ['조식', '중식', '석식'];
   const refreshInterval = 30 * 60 * 1000;
   let timetableRefreshAt = 0;
   let mealsRefreshAt = 0;
   let schoolTimer: ReturnType<typeof setTimeout>;
-  let neisTimer: ReturnType<typeof setTimeout>;
   let schoolRequest: AbortController | undefined;
   let neisRequest: AbortController | undefined;
   let tableRequest: AbortController | undefined;
   let mealRequest: AbortController | undefined;
 
   $: filtered = (timetable?.records ?? []).filter((r) => Number(r.grade) === Number(grade) && Number(r.class) === Number(classroom));
-  $: dates = Array.from({ length: filtered.some((r) => r.date === addDays(week, 5) || r.date === addDays(week, 6)) ? 7 : 5 }, (_, i) => addDays(week, i));
+  $: dates = Array.from({ length: 5 }, (_, i) => addDays(week, i));
   $: periods = Array.from({ length: Math.max(0, ...filtered.map((r) => Number(r.period))) }, (_, i) => i + 1);
-  $: sortedMeals = [...meals].sort((a, b) => a.date.localeCompare(b.date));
+  $: dayMeals = meals.filter((meal) => meal.date === mealDate);
 
-  function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) { return new Intl.DateTimeFormat('ko-KR', { ...options, timeZone: 'UTC' }).format(new Date(`${key}T00:00:00Z`)); }
-  function timeText(value: string | null | undefined) { if (!value || Number.isNaN(Date.parse(value))) return '정보 없음'; return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
+  function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) {
+    return new Intl.DateTimeFormat('ko-KR', { ...options, timeZone: 'UTC' }).format(new Date(key + 'T00:00:00Z'));
+  }
+  function timeText(value: string | null | undefined) {
+    if (!value || Number.isNaN(Date.parse(value))) return '정보 없음';
+    return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+  }
   function errorText(error: unknown) { return error instanceof Error ? error.message : '요청을 완료하지 못했어요.'; }
   function record(date: string, period: number): TimetableRecord | undefined { return filtered.find((r) => r.date === date && Number(r.period) === period); }
-  function neisKey(id: string) { return `opensigan-neis:${id}`; }
+  function neisKey(id: string) { return 'opensigan-neis:' + id; }
 
   function findSchool() {
     clearTimeout(schoolTimer); schoolRequest?.abort(); schoolResults = []; schoolSearchState = '';
@@ -53,32 +65,55 @@
     schoolSearchState = '검색 중…';
     schoolTimer = setTimeout(async () => {
       const controller = new AbortController(); schoolRequest = controller;
-      try { const result = await searchSchools(schoolQuery.trim(), controller.signal); if (!controller.signal.aborted) { schoolResults = result.schools; schoolSearchState = result.stale ? '저장된 검색 결과예요. 최신 정보가 아닐 수 있습니다.' : schoolResults.length ? '' : '검색 결과가 없어요.'; } }
-      catch (error) { if (!controller.signal.aborted) schoolSearchState = errorText(error); }
-    }, 250);
-  }
-  function findNeis() {
-    clearTimeout(neisTimer); neisRequest?.abort(); neisResults = []; neisSearchState = '';
-    if (neisQuery.trim().length < 2) return;
-    neisSearchState = '검색 중…';
-    neisTimer = setTimeout(async () => {
-      const controller = new AbortController(); neisRequest = controller;
-      try { const result = await searchNeisSchools(neisQuery.trim(), controller.signal); if (!controller.signal.aborted) { neisResults = result.schools; neisSearchState = result.stale ? '저장된 검색 결과예요. 최신 정보가 아닐 수 있습니다.' : neisResults.length ? '' : '검색 결과가 없어요.'; } }
-      catch (error) { if (!controller.signal.aborted) neisSearchState = errorText(error); }
+      try {
+        const result = await searchSchools(schoolQuery.trim(), controller.signal);
+        if (!controller.signal.aborted) {
+          schoolResults = result.schools;
+          schoolSearchState = result.stale ? '저장된 검색 결과예요. 최신 정보가 아닐 수 있습니다.' : schoolResults.length ? '' : '검색 결과가 없어요.';
+        }
+      } catch (error) { if (!controller.signal.aborted) schoolSearchState = errorText(error); }
     }, 250);
   }
   function chooseSchool(value: School) {
-    schoolRequest?.abort(); clearTimeout(schoolTimer); school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = '';
+    schoolRequest?.abort(); clearTimeout(schoolTimer); neisRequest?.abort(); mealRequest?.abort();
+    school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = ''; schoolEditorOpen = false;
+    neis = null; neisResults = []; neisSearchState = ''; neisLoading = false;
+    meals = []; hasMeals = false; mealsStale = false; mealState = ''; mealLoading = false; mealDataKey = ''; mealRequestKey = '';
     try { localStorage.setItem('opensigan-school', JSON.stringify(value)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
-    neisRequest?.abort(); clearTimeout(neisTimer);
-    neis = null; neisQuery = ''; neisResults = []; neisSearchState = '';
-    try { const saved = localStorage.getItem(neisKey(value.id)); if (saved) neis = JSON.parse(saved) as NeisSchool; } catch { /* 저장된 설정을 사용할 수 없습니다. */ }
-    if (neis) neisQuery = neis.name;
-    loadTimetable(); loadMeals();
+    loadTimetable();
+    try {
+      const saved = localStorage.getItem(neisKey(value.id));
+      if (saved) {
+        const candidate = JSON.parse(saved) as NeisSchool;
+        if (resolveMealSchool(value, [candidate])) { chooseNeis(candidate); return; }
+      }
+    } catch { /* 사용할 수 없는 저장 정보는 다시 조회합니다. */ }
+    void connectMeals(value);
+  }
+  async function connectMeals(value: School | null = school) {
+    if (!value) return;
+    neisRequest?.abort();
+    const controller = new AbortController(); neisRequest = controller;
+    neisLoading = true; neisResults = []; neisSearchState = '같은 학교의 급식을 연결하고 있어요.';
+    try {
+      const result = await searchNeisSchools(value.name, controller.signal);
+      if (controller.signal.aborted || school?.id !== value.id) return;
+      const match = resolveMealSchool(value, result.schools);
+      if (match) chooseNeis(match);
+      else {
+        neisResults = mealSchoolCandidates(value, result.schools);
+        neisSearchState = neisResults.length ? '같은 이름의 학교가 여러 곳이에요. 주소만 확인해 주세요.' : '같은 학교의 급식 정보를 찾지 못했어요.';
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && school?.id === value.id) neisSearchState = errorText(error);
+    } finally {
+      if (!controller.signal.aborted && school?.id === value.id) neisLoading = false;
+    }
   }
   function chooseNeis(value: NeisSchool) {
-    neisRequest?.abort(); clearTimeout(neisTimer); neis = value; neisQuery = value.name; neisResults = []; neisSearchState = '';
-    if (school) { try { localStorage.setItem(neisKey(school.id), JSON.stringify(value)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
+    neisRequest?.abort(); neis = value; neisResults = []; neisLoading = false;
+    neisSearchState = '급식도 ' + value.name + '로 연결했어요.';
+    if (school) { try { localStorage.setItem(neisKey(school.id), JSON.stringify(value)); } catch { /* 현재 연결은 저장 없이 유지합니다. */ } }
     loadMeals();
   }
   function loadTimetable(preserve = false) {
@@ -86,33 +121,55 @@
     if (!school) return;
     timetableRefreshAt = Date.now() + refreshInterval;
     const controller = new AbortController(); tableRequest = controller; tableLoading = true;
-    void getTimetable(school.id, week, controller.signal).then((data) => { if (!controller.signal.aborted) timetable = data; })
+    void getTimetable(school.id, week, controller.signal)
+      .then((data) => { if (!controller.signal.aborted) timetable = data; })
       .catch((error) => { if (!controller.signal.aborted) tableState = errorText(error); })
       .finally(() => { if (!controller.signal.aborted) tableLoading = false; });
   }
   function loadMeals(preserve = false) {
-    mealRequest?.abort(); if (!preserve) { meals = []; mealsStale = false; hasMeals = false; } mealState = ''; mealLoading = false;
     if (!school || !neis) return;
-    mealsRefreshAt = Date.now() + refreshInterval;
-    const controller = new AbortController(); mealRequest = controller; mealLoading = true;
-    void getMeals(neis.id, week, addDays(week, 6), controller.signal).then((data) => { if (!controller.signal.aborted) { meals = data.meals; mealsStale = data.stale; hasMeals = true; } })
+    const from = monday(mealDate);
+    const key = neis.id + ':' + from;
+    if (!preserve && hasMeals && mealDataKey === key && !mealLoading && Date.now() < mealsRefreshAt) return;
+    if (mealLoading && mealRequestKey === key && !mealRequest?.signal.aborted) return;
+    mealRequest?.abort();
+    if (!preserve || mealDataKey !== key) { meals = []; mealsStale = false; hasMeals = false; }
+    mealState = ''; mealsRefreshAt = Date.now() + refreshInterval;
+    const controller = new AbortController(); mealRequest = controller; mealLoading = true; mealRequestKey = key;
+    void getMeals(neis.id, from, addDays(from, 6), controller.signal)
+      .then((data) => { if (!controller.signal.aborted) { meals = data.meals; mealsStale = data.stale; hasMeals = true; mealDataKey = key; } })
       .catch((error) => { if (!controller.signal.aborted) mealState = errorText(error); })
       .finally(() => { if (!controller.signal.aborted) mealLoading = false; });
   }
   function refreshCalendar() {
-    today = currentKoreaDate(new Date());
-    current = monday(today);
+    const previousToday = today;
+    today = currentKoreaDate(new Date()); current = monday(today);
     const validWeek = clampWeek(week, current);
-    if (validWeek !== week) { week = validWeek; loadTimetable(); loadMeals(); return; }
+    if (validWeek !== week) { week = validWeek; loadTimetable(); }
+    if (mealDate === previousToday && today !== previousToday) { mealDate = today; loadMeals(); }
     if (document.visibilityState === 'visible') {
       const now = Date.now();
       if (school && !tableLoading && now >= timetableRefreshAt) loadTimetable(true);
       if (school && neis && !mealLoading && now >= mealsRefreshAt) loadMeals(true);
     }
   }
-  function changeWeek(delta: number) { refreshCalendar(); const next = addDays(week, delta * 7); if (next < current || next > addDays(current, 7)) return; week = next; loadTimetable(); loadMeals(); }
-  function currentWeek() { refreshCalendar(); const preserve = week === current; week = current; loadTimetable(preserve); loadMeals(preserve); }
-  function changeTheme() { theme = theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
+  function changeWeek(delta: number) {
+    refreshCalendar(); const next = addDays(week, delta * 7);
+    if (next < current || next > addDays(current, 7)) return;
+    week = next; loadTimetable();
+  }
+  function currentWeek() { refreshCalendar(); const preserve = week === current; week = current; loadTimetable(preserve); }
+  function changeMealDate(delta: number) { mealDate = addDays(mealDate, delta); dateError = ''; loadMeals(); }
+  function todayMeals() { refreshCalendar(); mealDate = today; dateError = ''; loadMeals(); }
+  function selectMealDate(event: Event) {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value + 'T00:00:00Z'))) { dateError = '날짜를 선택해 주세요.'; return; }
+    mealDate = value; dateError = ''; loadMeals();
+  }
+  function changeTheme() {
+    theme = theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
+  }
   function updateClass(event: Event) {
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
     classError = !Number.isInteger(value) || value < 1 || value > 99;
@@ -136,33 +193,90 @@
       const savedClass = Number(localStorage.getItem('opensigan-class')); if (Number.isInteger(savedClass) && savedClass >= 1 && savedClass <= 99) classroom = savedClass;
       const saved = localStorage.getItem('opensigan-school'); if (saved) chooseSchool(JSON.parse(saved) as School);
     } catch { /* 저장소를 사용할 수 없으면 기본 설정으로 시작합니다. */ }
-    return () => { clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', refreshCalendar); clearTimeout(schoolTimer); clearTimeout(neisTimer); schoolRequest?.abort(); neisRequest?.abort(); tableRequest?.abort(); mealRequest?.abort(); };
+    return () => {
+      clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', refreshCalendar);
+      clearTimeout(schoolTimer); schoolRequest?.abort(); neisRequest?.abort(); tableRequest?.abort(); mealRequest?.abort();
+    };
   });
 </script>
 
-<svelte:head><title>{school ? `${school.name} 시간표` : '학교 시간표'} — 오픈시간표</title></svelte:head>
+<svelte:head><title>{school?.name ?? '내 학교 캘린더'} — 오픈시간표</title></svelte:head>
 <div class:dark={theme === 'dark'} class="app-shell">
-  <header class="topbar"><div class="brand"><span class="brand-mark">O</span><span>오픈시간표</span></div><button class="theme-toggle" onclick={changeTheme} aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}>{theme === 'dark' ? '☀ 라이트 모드' : '☾ 다크 모드'}</button></header>
+  <a class="skip-link" href="#calendar">캘린더 본문으로 건너뛰기</a>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">O</span><span>오픈시간표</span></div>
+    <button class="theme-toggle" onclick={changeTheme} aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}>{theme === 'dark' ? '라이트 모드' : '다크 모드'}</button>
+  </header>
   <main>
-    <section class="page-intro"><div><p class="eyebrow">MY SCHOOL DAY</p><h1>{school ? `${school.name} 시간표` : '오늘의 학교생활'}</h1><p class="intro-copy">{school ? `${grade}학년 ${classroom}반 · 시간표와 급식을 한눈에` : '학교를 선택하고 시간표와 급식을 확인해요.'}</p></div><div class="date-chip">{dateText(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div></section>
-    {#if apiNotConfigured}<div class="config-notice" role="alert"><strong>API 서버 주소가 설정되지 않았어요.</strong> GitHub Pages 배포 시 <code>VITE_API_BASE_URL</code>을 지정해야 학교와 급식 정보를 불러올 수 있습니다.</div>{/if}
-    <section class="school-panel" aria-label="학교 및 학급 선택">
-      <div class="search-field"><label for="school">시간표 학교 찾기</label><div class="search-wrap"><span aria-hidden="true">⌕</span><input id="school" bind:value={schoolQuery} oninput={findSchool} placeholder="학교 이름을 입력하세요" autocomplete="off"/><span class="search-hint">2글자 이상</span></div><span class="sr-only" aria-live="polite">{schoolSearchState || (schoolResults.length ? `${schoolResults.length}개 학교 검색 결과` : '')}</span>{#if schoolResults.length || schoolSearchState}<div class="search-results">{#each schoolResults as item (item.id)}<button class="school-option" onclick={() => chooseSchool(item)}><strong>{item.name}</strong><small>{item.region}</small></button>{/each}{#if schoolSearchState}<p>{schoolSearchState}</p>{/if}</div>{/if}</div>
-      <div class="selectors"><label for="grade">학년<select id="grade" bind:value={grade} onchange={saveGrade}>{#each [1,2,3,4,5,6] as n}<option value={n}>{n}학년</option>{/each}</select></label><label for="classroom">반<input id="classroom" type="number" min="1" max="99" step="1" required value={classroom} oninput={updateClass} onchange={saveClass} aria-invalid={classError} aria-describedby={classError ? 'class-error' : undefined}/>{#if classError}<span id="class-error" role="alert">반은 1부터 99까지의 정수로 입력해 주세요.</span>{/if}</label></div>
-      <div class="school-caption">{#if school}<span>✓ {school.name} <span class="muted">{school.region}</span></span>{:else}<span>학교를 검색해 선택해 주세요.</span>{/if}</div>
+    <section class="school-heading" aria-label="선택한 학교">
+      <div><p class="eyebrow">내 학교 캘린더</p><h1>{school?.name ?? '어느 학교에 다니나요?'}</h1><p class="school-facts">{school ? school.region + ' · ' + grade + '학년 ' + classroom + '반' : '학교를 한 번 고르면 시간표와 급식을 함께 볼 수 있어요.'}</p></div>
+      {#if school}<button class="secondary-button" onclick={() => schoolEditorOpen = !schoolEditorOpen} aria-expanded={schoolEditorOpen} aria-controls="school-settings">학교·학급 변경</button>{/if}
     </section>
-    <section class="timetable-section" aria-labelledby="timetable-title"><div class="section-heading"><div><p class="eyebrow">CLASS SCHEDULE</p><h2 id="timetable-title">주간 시간표</h2></div><div class="week-control"><button onclick={() => changeWeek(-1)} disabled={week <= current} aria-label="이전 주">←</button><span>{dateText(week)} — {dateText(addDays(week, 6))}</span><button onclick={() => changeWeek(1)} disabled={week >= addDays(current, 7)} aria-label="다음 주">→</button><button class="today-button" onclick={currentWeek}>오늘</button></div></div>
-      {#if timetable}<div class="freshness" aria-live="polite"><span class="status-dot"></span><strong>{timetable.stale ? '저장된 시간표 · 최신 정보가 아닐 수 있어요' : '시간표 조회 완료'}</strong><span>원본 갱신 {timeText(timetable.sourceUpdatedAt)}</span><span>마지막 수집 {timeText(timetable.fetchedAt)}</span></div>{/if}
-      {#if tableState && timetable}<p class="meal-stale" role="alert">시간표 갱신에 실패해 이전 결과를 표시하고 있어요. {tableState} <button class="text-button" onclick={() => loadTimetable(true)}>다시 시도</button></p>{/if}
-      {#if tableState && !timetable}<div class="state-message" role="alert"><strong>시간표를 불러오지 못했어요.</strong><span>{tableState}</span><button class="text-button" onclick={() => loadTimetable()}>다시 시도</button></div>{:else if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><span>학교와 학년·반을 선택하면 주간 시간표가 표시됩니다.</span></div>{:else if tableLoading && !timetable}<div class="state-message" role="status">시간표를 불러오고 있어요.</div>{:else if classError}<div class="state-message"><strong>올바른 반을 입력해 주세요</strong><span>1부터 99까지의 정수를 입력하면 시간표를 볼 수 있습니다.</span></div>{:else if !filtered.length}<div class="state-message"><strong>시간표가 아직 없어요</strong><span>선택한 학급과 주에 등록된 수업 정보가 없습니다.</span></div>{:else}<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <div class="table-scroll" tabindex="0" role="region" aria-label="시간표 (가로로 스크롤 가능)"><table class="timetable"><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}{date === today ? ' · 오늘' : ''}</span><small>{dateText(date)}</small></th>{/each}</tr></thead><tbody>{#each periods as period}<tr><th scope="row"><span class="period-number">{String(period).padStart(2, '0')}</span><small>교시</small></th>{#each dates as date}<td class:today-column={date === today}>{#if record(date, period)}<div class="class-cell"><span>{record(date, period)?.subject}</span>{#if record(date, period)?.isChanged}<span class="change-label">변동</span>{/if}{#if record(date, period)?.teacher}<small>{record(date, period)?.teacher}</small>{/if}</div>{:else}<span class="empty-cell">—</span>{/if}</td>{/each}</tr>{/each}</tbody></table></div>{/if}
-      <div class="legend"><span class="change-label">변동</span><span>수업 정보가 변동된 교시</span><span class="mobile-hint">표를 좌우로 움직여 보세요</span></div>
-    </section>
-    <section class="meals-section" aria-labelledby="meals-title"><div class="section-heading"><div><p class="eyebrow">{week === current ? 'THIS WEEK' : 'NEXT WEEK'}</p><h2 id="meals-title">{week === current ? '이번 주' : '다음 주'} 급식</h2></div><span class="meal-range">{dateText(week)} — {dateText(addDays(week, 6))}</span></div>
-      {#if school}<div class="neis-panel"><div><strong>급식 학교 선택</strong><p>학교명과 주소를 확인하고 직접 선택해 주세요.</p></div><div class="search-field neis-search"><label class="sr-only" for="neis">NEIS 급식 학교 찾기</label><div class="search-wrap"><span aria-hidden="true">⌕</span><input id="neis" bind:value={neisQuery} oninput={findNeis} placeholder="급식 학교 검색" autocomplete="off"/></div><span class="sr-only" aria-live="polite">{neisSearchState || (neisResults.length ? `${neisResults.length}개 급식 학교 검색 결과` : '')}</span>{#if neisResults.length || neisSearchState}<div class="search-results">{#each neisResults as item (item.id)}<button class="school-option neis-option" onclick={() => chooseNeis(item)}><strong>{item.name}</strong><small>{item.region} · {item.address}</small></button>{/each}{#if neisSearchState}<p>{neisSearchState}</p>{/if}</div>{/if}</div>{#if neis}<div class="neis-selected">✓ {neis.name} · {neis.region} · {neis.address}</div>{/if}</div>{/if}
-      {#if mealState && hasMeals}<p class="meal-stale" role="alert">급식 갱신에 실패해 이전 결과를 표시하고 있어요. {mealState} <button class="text-button" onclick={() => loadMeals(true)}>다시 시도</button></p>{/if}
-      {#if mealState && !hasMeals}<div class="state-message" role="alert"><strong>급식을 불러오지 못했어요.</strong><span>{mealState}</span><button class="text-button" onclick={() => loadMeals()}>다시 시도</button></div>{:else if !school}<div class="state-message compact">시간표 학교를 먼저 선택해 주세요.</div>{:else if !neis}<div class="state-message compact">급식을 보려면 급식 학교를 직접 선택해 주세요.</div>{:else if mealLoading && !hasMeals}<div class="state-message compact" role="status">급식을 불러오고 있어요.</div>{:else if !sortedMeals.length}<div class="state-message compact">{week === current ? '이번 주' : '다음 주'} 등록된 급식 정보가 없어요.</div>{:else}<div class="meal-list">{#each sortedMeals as meal, i (i)}<article class="meal-row" class:today-meal={meal.date === today}><div class="meal-date"><strong>{dateText(meal.date)}</strong><span>{dateText(meal.date, { weekday: 'long' })}{meal.date === today ? ' · 오늘' : ''}</span></div><div class="meal-type">{meal.type}</div><ul class="dishes">{#each meal.dishes as dish}<li>{dish}</li>{/each}</ul></article>{/each}</div>{/if}
-      {#if neis && !mealLoading && !mealState && mealsStale}<p class="meal-stale">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
-    </section><footer><span>오픈시간표</span><span>학교와 학급 설정은 이 기기에 저장됩니다.</span></footer>
+    {#if apiNotConfigured}<p class="notice" role="alert">학교 정보를 불러올 API 주소가 설정되지 않았어요.</p>{/if}
+    {#if schoolEditorOpen || !school}
+      <section id="school-settings" class="school-panel" aria-label="학교 및 학급 선택">
+        <div class="search-field">
+          <label for="school">학교 찾기</label>
+          <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="school" type="search" bind:value={schoolQuery} oninput={findSchool} placeholder="학교 이름 두 글자 이상" autocomplete="off" /></div>
+          <span class="sr-only" aria-live="polite">{schoolSearchState || (schoolResults.length ? schoolResults.length + '개 학교 검색 결과' : '')}</span>
+          {#if schoolResults.length || schoolSearchState}
+            <div class="search-results">
+              {#each schoolResults as item (item.id)}<button class="school-option" onclick={() => chooseSchool(item)}><strong>{item.name}</strong><span>{item.region}</span></button>{/each}
+              {#if schoolSearchState}<p>{schoolSearchState}</p>{/if}
+            </div>
+          {/if}
+        </div>
+        <div class="selectors">
+          <label for="grade">학년<select id="grade" bind:value={grade} onchange={saveGrade}>{#each [1,2,3,4,5,6] as n}<option value={n}>{n}학년</option>{/each}</select></label>
+          <label for="classroom">반<input id="classroom" type="number" min="1" max="99" step="1" required value={classroom} oninput={updateClass} onchange={saveClass} aria-invalid={classError} aria-describedby={classError ? 'class-error' : undefined} /></label>
+        </div>
+        {#if classError}<p id="class-error" class="notice" role="alert">반은 1부터 99까지의 정수로 입력해 주세요.</p>{/if}
+      </section>
+    {/if}
+    <nav class="calendar-menu" aria-label="캘린더 메뉴">
+      <span class="menu-label">캘린더</span>
+      <button aria-pressed={view === 'timetable'} aria-controls="timetable-panel" onclick={() => view = 'timetable'}><span aria-hidden="true">▦</span> 시간표</button>
+      <button aria-pressed={view === 'meals'} aria-controls="meals-panel" onclick={() => view = 'meals'}><span aria-hidden="true">□</span> 급식</button>
+    </nav>
+    <div id="calendar" class="calendar-content" tabindex="-1">
+        <section id="timetable-panel" hidden={view !== 'timetable'} aria-labelledby="timetable-title">
+          <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '다음 주'}</p><h2 id="timetable-title">우리 반 시간표</h2></div><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div>
+          <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeWeek(-1)} disabled={week <= current} aria-label="이전 주">←</button><div class="calendar-date" aria-live="polite"><strong>{dateText(week)} — {dateText(addDays(week, 4))}</strong><span>월요일부터 금요일</span></div><button class="arrow-button" onclick={() => changeWeek(1)} disabled={week >= addDays(current, 7)} aria-label="다음 주">→</button></div>
+          {#if tableState}<div class="notice" role="alert">{timetable ? '이전 시간표를 표시하고 있어요. ' : ''}{tableState} <button class="text-button" onclick={() => loadTimetable(!!timetable)}>다시 시도</button></div>{/if}
+          {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>학교와 학급을 선택하면 시간표가 표시돼요.</p></div>
+          {:else if tableLoading && !timetable}<div class="state-message" role="status"><strong>시간표를 불러오고 있어요.</strong></div>
+          {:else if classError}<div class="state-message">반을 1부터 99까지의 정수로 입력해 주세요.</div>
+          {:else if timetable && filtered.length}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <div class="table-scroll" tabindex="0" role="region" aria-label="주간 시간표, 좌우로 스크롤 가능">
+              <table class="timetable"><caption class="sr-only">{school.name} {grade}학년 {classroom}반 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}{date === today ? ' · 오늘' : ''}</small></th>{/each}</tr></thead>
+                <tbody>{#each periods as period}<tr><th scope="row">{period}<span class="sr-only">교시</span></th>{#each dates as date}<td class:today-column={date === today} class:changed={record(date, period)?.isChanged}>{#if record(date, period)}<div class="class-cell"><strong>{record(date, period)?.subject || '수업 정보 없음'}</strong>{#if record(date, period)?.teacher}<span>{record(date, period)?.teacher}</span>{/if}{#if record(date, period)?.isChanged}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell" aria-label="수업 없음">—</span>{/if}</td>{/each}</tr>{/each}</tbody>
+              </table>
+            </div>
+            <p class="table-hint">‘변동’ 표시가 있는 교시는 수업 정보가 변경됐어요. <span>휴대폰에서는 표를 좌우로 밀어 보세요.</span></p>
+          {:else if !tableState}<div class="state-message"><strong>등록된 시간표가 없어요.</strong><p>학교와 학년·반을 확인해 주세요.</p></div>{/if}
+          {#if timetable}<div class="freshness" aria-live="polite"><span>{timetable.stale ? '저장된 시간표 · 최신 정보가 아닐 수 있어요' : tableLoading ? '시간표 갱신 중…' : '시간표 조회 완료'}</span><span>원본 갱신 {timeText(timetable.sourceUpdatedAt)}</span><span>마지막 수집 {timeText(timetable.fetchedAt)}</span></div>{/if}
+        </section>
+        <section id="meals-panel" hidden={view !== 'meals'} aria-labelledby="meals-title">
+          <div class="section-heading"><div><p class="eyebrow">{mealDate === today ? '오늘의 식단' : '하루 식단'}</p><h2 id="meals-title">학교 급식</h2></div><button class="secondary-button" onclick={todayMeals}>오늘로</button></div>
+          <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeMealDate(-1)} aria-label="이전 날짜">←</button><div class="calendar-date"><strong aria-live="polite">{dateText(mealDate, { month: 'long', day: 'numeric', weekday: 'long' })}</strong><label class="date-picker">날짜 선택 <input type="date" value={mealDate} onchange={selectMealDate} aria-invalid={!!dateError} /></label></div><button class="arrow-button" onclick={() => changeMealDate(1)} aria-label="다음 날짜">→</button></div>
+          {#if dateError}<p class="notice" role="alert">{dateError}</p>{/if}
+          <div class="meal-connection" aria-live="polite">{#if neis}<span>{neis.name} · {neis.address} · 급식 연결됨</span>{:else if school}<span>{neisSearchState}</span>{/if}</div>
+          {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>시간표 학교를 선택하면 급식도 함께 연결돼요.</p></div>
+          {:else if neisLoading}<div class="state-message" role="status">같은 학교의 급식을 연결하고 있어요.</div>
+          {:else if !neis}
+            <div class="connection-options">{#each neisResults as item (item.id)}<button class="school-option" onclick={() => chooseNeis(item)}><strong>{item.name}</strong><span>{item.address}</span></button>{/each}<button class="text-button" onclick={() => connectMeals()}>급식 연결 다시 시도</button></div>
+          {:else}
+            {#if mealState}<div class="notice" role="alert">{hasMeals ? '이전 급식 정보를 표시하고 있어요. ' : ''}{mealState} <button class="text-button" onclick={() => loadMeals(true)}>다시 시도</button></div>{/if}
+            {#if mealLoading && !hasMeals}<div class="state-message" role="status">식단을 불러오고 있어요.</div>
+            {:else if hasMeals}
+              <div class="meal-cards">{#each mealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}<li>{dish}</li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>
+              <p class="meal-note">식단 뒤의 숫자는 알레르기 정보예요. 학교에서 안내하는 원본 식단도 확인해 주세요.</p>
+            {/if}
+            {#if mealsStale}<p class="notice">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
+          {/if}
+        </section>
+    </div>
+    <footer>학교·학급 설정은 이 기기에 저장돼요.</footer>
   </main>
 </div>

@@ -14,11 +14,15 @@ const regions = [
 
 const compact = (value: string) => value.normalize('NFKC').replace(/\s+/g, '');
 
-export function resolveMealSchool(school: School, candidates: NeisSchool[]): NeisSchool | null {
+export function mealSchoolCandidates(school: School, candidates: NeisSchool[]): NeisSchool[] {
   const office = regions.find(([, ...aliases]) => aliases.includes(compact(school.region)))?.[0];
-  const matches = candidates.filter((candidate) =>
+  return candidates.filter((candidate) =>
     compact(candidate.name) === compact(school.name)
     && (!office || candidate.id.split(':')[0] === office),
   );
+}
+
+export function resolveMealSchool(school: School, candidates: NeisSchool[]): NeisSchool | null {
+  const matches = mealSchoolCandidates(school, candidates);
   return matches.length === 1 ? matches[0] : null;
 }

@@ -71,7 +71,7 @@ test('refreshes each visible dataset at 30 minutes and coalesces repeated visibi
   assert.equal(calls.meals.length, 3);
 });
 
-test('automatic refresh retains previous results when requests fail, but clears them for a new week', async () => {
+test('failed refresh keeps previous results and timetable week changes preserve the selected meal date', async () => {
   const { app, calls, setNow } = await createApp();
   app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
   app.chooseNeis({ id: 'neis', name: '학교', region: '서울', address: '' });
@@ -96,11 +96,11 @@ test('automatic refresh retains previous results when requests fail, but clears 
 
   app.changeWeek(1);
   assert.equal(app.state().timetable, null);
-  assert.equal(app.state().hasMeals, false);
-  assert.equal(app.state().meals.length, 0);
+  assert.equal(app.state().hasMeals, true);
+  assert.equal(app.state().meals.length, 1);
 });
 
-test('week changes abort in-flight requests and immediately load the selected week', async () => {
+test('timetable week changes abort only the timetable request and leave meals alone', async () => {
   const { app, calls } = await createApp();
   app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
   app.chooseNeis({ id: 'neis', name: '학교', region: '서울', address: '' });
@@ -110,14 +110,13 @@ test('week changes abort in-flight requests and immediately load the selected we
   app.changeWeek(1);
 
   assert.equal(oldTable.signal.aborted, true);
-  assert.equal(oldMeals.signal.aborted, true);
+  assert.equal(oldMeals.signal.aborted, false);
   assert.equal(calls.timetable.length, 2);
-  assert.equal(calls.meals.length, 2);
+  assert.equal(calls.meals.length, 1);
   assert.equal(calls.timetable[1].week, '2026-11-16');
-  assert.equal(calls.meals[1].from, '2026-11-16');
 });
 
-test('today retains current-week results if refreshing fails', async () => {
+test('returning to this timetable week retains previous results if refreshing fails', async () => {
   const { app, calls } = await createApp();
   app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
   app.chooseNeis({ id: 'neis', name: '학교', region: '서울', address: '' });
@@ -128,12 +127,12 @@ test('today retains current-week results if refreshing fails', async () => {
   await new Promise(setImmediate);
 
   app.currentWeek();
+  assert.equal(calls.timetable.length, 2);
+  assert.equal(calls.meals.length, 1);
   calls.timetable[1].reject(new Error('offline'));
-  calls.meals[1].reject(new Error('offline'));
   await new Promise(setImmediate);
   assert.equal(app.state().timetable, table);
   assert.equal(app.state().meals[0], meal);
   assert.equal(app.state().hasMeals, true);
   assert.ok(app.state().tableState);
-  assert.ok(app.state().mealState);
 });

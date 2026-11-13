@@ -30,13 +30,13 @@ for (const failure of ['property access', 'storage methods']) {
     const app = runInNewContext(javascript, context);
     let cleanup;
     assert.doesNotThrow(() => { cleanup = mount(); });
-    assert.equal(app.state().theme, 'dark');
+    assert.equal(app.state().theme, 'light');
     assert.equal(app.state().grade, 1);
     assert.equal(app.state().classroom, 1);
 
     const errors = [];
     try { app.changeTheme(); } catch { errors.push('theme'); }
-    assert.equal(app.state().theme, 'light');
+    assert.equal(app.state().theme, 'dark');
     app.setGrade(3);
     try { app.saveGrade(); } catch { errors.push('grade'); }
     assert.equal(app.state().grade, 3);
