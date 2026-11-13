@@ -1,2 +1,3 @@
-pycomcigan @ git+https://github.com/hegelty/pycomcigan.git@6ac58dd6304b8bb0a3c22c6543bbcfccc2988dd1
+pycomcigan @ git+https://github.com/hegelty/pycomcigan.git@6fc801068e3793d17bc3523082e7afbcf05d2d92
 requests>=2.32.0
+waitress>=3.0.0

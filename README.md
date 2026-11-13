@@ -48,7 +48,7 @@ npm run build
 
 - GitHub Actions는 저장소 변수 `API_BASE_URL`에 지정된 파이의 HTTPS 주소를 Pages 빌드에 사용합니다. 공개 터널이 닫혀 있으면 Pages 화면은 열리지만 데이터는 조회할 수 없습니다.
 - 파이의 [API 서비스](deploy/opensigan.service)는 `127.0.0.1:8000`에서 실행합니다. [집 Wi-Fi 검수 서비스](deploy/opensigan-preview.service)는 `~/.config/opensigan/preview.env`에 지정한 `LAN_HOST`의 8080 포트에서, API 주소를 비운 채 빌드한 `frontend/dist`와 API를 함께 제공합니다. 두 서비스는 `~/.config/opensigan/neis.env`에서 키를 읽습니다. 부팅 시 자동 시작에는 사용자 lingering이 필요합니다.
-- 파이 API는 프로세스 내 메모리 캐시를 사용합니다. 개발용 HTTP 서버는 공개망에 직접 노출하지 않습니다.
+- 파이 API는 Waitress와 프로세스 내 메모리 캐시를 사용합니다. 집 Wi-Fi 검수 서비스는 별도로 실행하며 공개망에 노출하지 않습니다.
 - 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
 - Cloudflare Worker/D1은 [기존 배포 기록](workers-api/README.md)과 [Phase 0 실험](phase0/REPORT.md)에 남겨 두었습니다.
 - 실제 NEIS API 확인에는 서버 측 인증키가 필요합니다. API 키를 브라우저 번들에 포함하지 않습니다.
