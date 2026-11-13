@@ -1,0 +1,25 @@
+name: Parser health
+
+on:
+  schedule:
+    # 09:17 KST on Monday; one Comcigan school search per run.
+    - cron: '17 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parser-health:
+    name: Live school search
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned parser dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Check live Comcigan school-search parsing (one query)
+        run: python -m backend.parser_health_probe

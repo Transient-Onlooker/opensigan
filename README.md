@@ -1,5 +1,11 @@
 # Opencigan
 
+[![CI](https://github.com/Transient-Onlooker/opensigan/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Transient-Onlooker/opensigan/actions/workflows/ci.yml)
+[![Parser health](https://github.com/Transient-Onlooker/opensigan/actions/workflows/parser-health.yml/badge.svg?branch=main)](https://github.com/Transient-Onlooker/opensigan/actions/workflows/parser-health.yml)
+
+> **상태 표시:** CI는 단위·통합 검사와 프런트엔드 빌드 결과입니다. Parser health는 매주 월요일 한 번 `대전` 학교 검색으로 현재 컴시간 프로토콜·복호화 경로를 검사합니다(수동 실행 가능). 검색 결과만 확인하며 시간표 전체를 요청하지 않습니다. 외부 서버 또는 GitHub Actions 네트워크 문제로 실패할 수도 있고, 공개 API 가용성을 보증하지는 않습니다.
+
+
 컴시간의 학생 시간표와 NEIS 급식을 조회하는 서비스입니다. 화면은 GitHub Pages에서 배포하고, API는 라즈베리 파이에서 운영합니다. API 공개 전에는 같은 집 Wi-Fi에 연결한 기기에서 라즈베리 파이의 검수 페이지를 이용합니다.
 
 현재 개발 방향은 [기능 로드맵](docs/roadmap.md)을 참고하세요. `school-timetable-development-plan-v01.md`는 초기 설계 기록이며 현재 배포 구조의 기준이 아닙니다.
