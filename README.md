@@ -3,27 +3,33 @@
 [![CI](https://github.com/Transient-Onlooker/opensigan/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Transient-Onlooker/opensigan/actions/workflows/ci.yml)
 [![Parser health](https://github.com/Transient-Onlooker/opensigan/actions/workflows/parser-health.yml/badge.svg?branch=main)](https://github.com/Transient-Onlooker/opensigan/actions/workflows/parser-health.yml)
 
-> **상태 표시:** CI는 단위·통합 검사와 프런트엔드 빌드 결과입니다. Parser health는 매주 월요일 한 번 `대전` 학교 검색으로 현재 컴시간 프로토콜·복호화 경로를 검사합니다(수동 실행 가능). 검색 결과만 확인하며 시간표 전체를 요청하지 않습니다. 외부 서버 또는 GitHub Actions 네트워크 문제로 실패할 수도 있고, 공개 API 가용성을 보증하지는 않습니다.
+**학교 시간표와 급식을 한곳에서 조회하는 웹서비스**입니다. 컴시간 시간표와 NEIS 급식을 사용하며, 프런트엔드는 Svelte, 주 백엔드는 Python입니다.
 
+[웹사이트](https://transient-onlooker.github.io/opensigan/) · [API 명세](docs/openapi.yaml) · [기능 로드맵](docs/roadmap.md)
 
-컴시간의 학생 시간표와 NEIS 급식을 조회하는 서비스입니다. 화면은 GitHub Pages에서 배포하고, API는 라즈베리 파이에서 운영합니다. API 공개 전에는 같은 집 Wi-Fi에 연결한 기기에서 라즈베리 파이의 검수 페이지를 이용합니다.
+> **현재 상태 (2026-11-14):** 개발·내부망 검수 단계입니다. GitHub Pages의 정적 화면은 배포되지만 공개 API 주소가 설정되지 않거나 터널이 닫혀 있으면 시간표/급식 조회가 동작하지 않습니다. 외부 개발자용 API의 공개 운영은 별도 검증·승인이 필요합니다.
 
-현재 개발 방향은 [기능 로드맵](docs/roadmap.md)을 참고하세요. `school-timetable-development-plan-v01.md`는 초기 설계 기록이며 현재 배포 구조의 기준이 아닙니다.
+## 구현된 기능
 
-## 로컬 실행
+- 학교 검색, 학년·반 선택, 선택 정보 브라우저 저장
+- 오늘의 시간표, 우리 반 주간 시간표, 학년 전체 반별 비교, 교사별 시간표 검색
+- 교시별 변경 표시, 원본 갱신/수집 시각, 실패 시 가능한 범위에서 이전 캐시 표시
+- NEIS 학교 매칭 및 조식·중식·석식 조회, 날짜 이동
+- 반응형 모바일 화면, 다크 모드
+- 읽기 전용 `/api/v1` JSON 엔드포인트 6개(상태·학교 검색 2종·시간표·급식·변경 이력) 및 OpenAPI 3.1 명세
+- 변경 이력 비교/페이지네이션 코드: **저장은 기본 비활성화**이며 첫 수집분은 비교 기준으로만 사용
 
-Python 3.13과 Node.js 22 이상이 필요합니다.
+## 시작하기
+
+요구사항: **Python 3.13**, **Node.js 22 이상**. 명령은 저장소 루트 기준입니다.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r backend\requirements.txt
-$env:NEIS_API_KEY = (Get-Content -Encoding UTF8 .env | Where-Object { $_ -match '^NEIS_API_KEY=' } | Select-Object -First 1) -replace '^NEIS_API_KEY=', ''
 .\.venv\Scripts\python -m backend.app
 ```
 
-프로젝트 루트의 `.env.example`을 `.env`로 복사하고 `NEIS_API_KEY=발급받은키` 형식으로 입력합니다. `.env`는 Git에서 제외되며 위 명령으로 로컬 서버를 시작할 때 읽습니다.
-
-다른 터미널에서 다음을 실행합니다.
+별도 터미널에서:
 
 ```powershell
 cd frontend
@@ -31,45 +37,37 @@ npm ci
 npm run dev
 ```
 
-Vite가 출력하는 로컬 주소를 열면 `/api` 요청을 로컬 API로 전달합니다. 인증키가 없으면 시간표는 조회할 수 있지만 NEIS 학교 및 급식 조회는 실패합니다. 인증키를 코드나 Git에 넣지 마세요. 급식 학교는 동명이교를 구별할 수 있도록 주소를 확인하고 직접 선택해야 합니다.
+Vite가 표시하는 로컬 주소의 `/opensigan/`을 엽니다. 개발 서버의 `/api` 요청은 `http://127.0.0.1:8000`으로 프록시됩니다. 시간표 검색은 NEIS 키 없이도 동작하지만, **NEIS 학교·급식 조회에는 서버 측 `NEIS_API_KEY`가 필요**합니다. `.env.example`은 예시이고 `backend.app`은 `.env`를 자동으로 읽지 않으므로 실행 환경에 키를 별도로 설정해야 합니다. 키를 코드·커밋·브라우저 번들에 포함하지 마세요.
 
-## 검증
+전체 로컬 설정과 테스트: [개발 가이드](docs/development.md).
 
-실제 집 Wi-Fi 사용자 테스트의 요청별 처리 시간은 [2026-11-13 계측 기록](docs/latency-2026-11-13.md)에 정리했습니다. 서버 처리 시간과 화면이 표시되기까지의 전체 시간은 구분합니다.
+## 문서
 
-```powershell
-.\.venv\Scripts\python -m unittest discover -s tests -v
-cd frontend
-npm run check
-npm test
-npm run build
-```
+| 문서 | 내용 |
+| --- | --- |
+| [개발 가이드](docs/development.md) | 개발환경, 오프라인 테스트, PR 체크리스트 |
+| [구조 설명](docs/architecture.md) | 프런트엔드·Python API·캐시·이력 흐름 |
+| [API 사용 가이드](docs/api-guide.md) | 엔드포인트, 응답 예시, 오류·캐시 의미 |
+| [OpenAPI 3.1](docs/openapi.yaml) | 기계 판독 가능한 계약 |
+| [운영·모니터링](docs/operations.md) | LAN 검수, RPi 서비스, 배지, 복구 절차 |
+| [개발 로드맵](docs/roadmap.md) | P0~P4 구현 현황 및 후속 작업 |
+| [지연 계측](docs/latency-2026-11-13.md) | 실제 내부망 샘플 및 측정 범위 |
+| [기여 가이드](CONTRIBUTING.md) | 이슈·PR·보안·검증 기준 |
 
-네트워크를 사용하는 별도 확인으로 `python -m tests.neis_sample_probe`를 실행할 수 있습니다. NEIS 인증키 없는 공식 샘플을 이용해 특정 학교의 2026-11-09 식단을 확인합니다. 2026-11-10에 학교 1곳과 급식 2건의 파싱을 확인했습니다. 샘플은 최대 5건만 제공하므로 정식 인증키와 전체 페이지 조회의 대체 검증이 아닙니다. 과거 식단이 제거되면 이 확인도 실패할 수 있습니다.
+API Playground는 **API와 같은 출처로 제공하는 내부망 검수 사이트**의 `/opensigan/api-docs.html`에 있습니다. GitHub Pages에서는 상대 경로 API가 없으므로 실시간 요청 기능이 비활성화됩니다.
 
-실제 인증키를 사용하는 로컬 통합 검증은 프로젝트 루트의 `.env`에 `NEIS_API_KEY=발급받은키` 한 줄을 설정한 뒤, 학교 검색 결과가 정확히 하나인 이름으로 수동 실행합니다.
+## 상태 배지의 의미
 
-```powershell
-.\.venv\Scripts\python -m tests.neis_local_probe "학교 이름" 2026-11-09
-```
+- **CI:** 저장소 테스트·Svelte/TypeScript 검사·빌드/배포 워크플로 상태입니다. 원본 컴시간 서버의 실시간 가용성은 측정하지 않습니다.
+- **Parser health:** 매주 월요일 **09:17 KST**에 `대전` 학교 검색을 **한 차례** 수행해 현재 검색 프로토콜·복호화·결과 형식을 검사합니다. 수동 실행도 가능합니다. 시간표 전체 조회나 API 서비스 가동 여부를 검사하지 않으며, 원본 서버나 Actions 네트워크 장애 때문에 실패할 수 있습니다. 첫 실행 전에는 배지가 미확정 상태일 수 있습니다.
 
-날짜는 생략하면 오늘이며, 급식이 없는 날에는 0건이 정상일 수 있습니다. 스크립트는 `.env`의 키를 메모리에서 읽고 임시 로컬 HTTP 서버를 통해 학교와 하루 급식을 조회합니다. 각 HTTP 상태와 결과 건수만 출력하며, 학교 검색이 유일하지 않거나 조회가 실패하면 중단합니다. 키를 명령 인자에 넣지 마세요. 이 명령은 실제 NEIS에 네트워크 요청을 보내며 일반 오프라인 테스트에는 포함되지 않습니다.
+자세한 해석 및 장애 대응: [운영·모니터링](docs/operations.md).
 
-## 배포 현황과 제한
+## 공개 운영 전 주의사항
 
-- GitHub Actions는 저장소 변수 `API_BASE_URL`에 지정된 파이의 HTTPS 주소를 Pages 빌드에 사용합니다. 공개 터널이 닫혀 있으면 Pages 화면은 열리지만 데이터는 조회할 수 없습니다.
-- 파이의 [API 서비스](deploy/opensigan.service)는 `127.0.0.1:8000`에서 실행합니다. [집 Wi-Fi 검수 서비스](deploy/opensigan-preview.service)는 `~/.config/opensigan/preview.env`에 지정한 `LAN_HOST`의 8080 포트에서, API 주소를 비운 채 빌드한 `frontend/dist`와 API를 함께 제공합니다. 두 서비스는 `~/.config/opensigan/neis.env`에서 키를 읽습니다. 부팅 시 자동 시작에는 사용자 lingering이 필요합니다.
-- 현재 P0 내부 검수는 [전용 drop-in](deploy/opensigan-preview-p0.conf)으로 `~/opensigan-releases/p0-20261114`의 별도 빌드를 사용하며 기존 `~/opensigan` 작업 내용은 보존합니다. 되돌릴 때 해당 drop-in을 `.conf.disabled`로 옮기고 `systemctl --user daemon-reload` 및 `systemctl --user restart opensigan-preview`를 실행합니다.
-- 집 Wi-Fi에서 `http://<LAN_HOST>:8080/opensigan/`을 열어 검수합니다. 파이에서 `curl -f "http://<LAN_HOST>:8080/api/v1/status"`로 검수 서비스의 API 응답을 따로 확인할 수 있습니다.
-- 파이에 `rpi-guard.service`가 있으면 UFW 비활성 여부와 별개로 내부망 8080이 차단될 수 있습니다. [전용 drop-in](deploy/rpi-guard-opensigan.conf)은 기존 방화벽 파일을 수정하지 않고, 방화벽 시작 직후 `wlan0`의 `172.30.1.0/24`에서 들어오는 TCP 8080만 허용합니다. 아래 명령은 다음 방화벽 시작부터 적용하며 실행 중인 방화벽을 재시작하지 않습니다. 영구 적용을 되돌리려면 설치한 파일을 `.conf.disabled`로 옮기고 `sudo systemctl daemon-reload`를 실행합니다. 현재 활성 규칙은 별도로 남아 있으므로 즉시 철회할 때는 `sudo nft -a list chain inet rpi_guard input`에서 해당 규칙의 handle을 확인해 그 규칙만 삭제합니다.
-
-  ```bash
-  sudo install -D -m 644 ~/opensigan/deploy/rpi-guard-opensigan.conf /etc/systemd/system/rpi-guard.service.d/opensigan-lan.conf
-  sudo systemctl daemon-reload
-  ```
-- 파이 API는 Waitress와 프로세스 내 메모리 캐시를 사용합니다. 집 Wi-Fi 검수 서비스는 별도로 실행하며 공개망에 노출하지 않습니다.
-- API 명세는 [OpenAPI 3.1](docs/openapi.yaml), 내부망 Playground는 `/opensigan/api-docs.html`에서 확인합니다. 각 프로세스의 클라이언트 주소당 데이터 요청은 분당 60회로 제한하며 프록시 뒤의 클라이언트 식별은 공개 전에 검증해야 합니다.
-- 변경 이력은 기본 비활성화되어 있습니다. 원본 이용 조건 확인 전에는 실제 학교 데이터를 저장하지 마세요. 허용된 합성 데이터 검증 시에만 `OPENCIGAN_HISTORY_DB`를 로컬 SQLite 경로로 설정할 수 있으며 30일 관측 이력을 보존합니다.
-- 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
-- Cloudflare Worker/D1은 [기존 배포 기록](workers-api/README.md)과 [Phase 0 실험](phase0/REPORT.md)에 남겨 두었습니다.
-- 실제 NEIS API 확인에는 서버 측 인증키가 필요합니다. API 키를 브라우저 번들에 포함하지 않습니다.
+- Python API는 현재 `127.0.0.1:8000`에 바인딩하는 구성입니다. 내부망 검수 서버는 별도로 운영하며, 공개 터널 설정은 이 저장소의 문서 갱신으로 변경되지 않습니다.
+- 메모리 캐시는 **프로세스별**이고 기본 TTL은 30분입니다. 변경 이력 SQLite 저장은 기본 비활성화입니다.
+- 호출 제한은 프로세스의 `REMOTE_ADDR`를 기준으로 합니다. Cloudflare 같은 역방향 프록시 뒤에서는 실제 이용자를 구별하지 못할 수 있어 공개 전 별도 구성이 필요합니다.
+- 컴시간 원본의 재제공·저장 허용 범위와 외부 서비스 이용 조건을 확인하기 전에는 공개 API를 활성화하지 않습니다. 외부 제공 데이터가 정상 조회된다는 사실이 재배포 허가를 뜻하지는 않습니다.
+- 과거 Cloudflare Workers/D1 실험은 [별도 기록](workers-api/README.md)에 남아 있습니다. [초기 설계](school-timetable-development-plan-v01.md)는 현재 구현의 기준 문서가 아닙니다.
+- **라이선스:** 저장소에 별도의 `LICENSE` 파일은 아직 없습니다. 공개 저장소라는 사실만으로 외부 사용·재배포 권한이 부여되지는 않습니다.
