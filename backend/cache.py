@@ -21,6 +21,19 @@ class Cache:
         self.locks = tuple(threading.Lock() for _ in range(lock_stripes))
 
     def get(self, key, fetch):
+        now = time.monotonic()
+        with self.guard:
+            entry = self.entries.get(key)
+            if entry is not None:
+                value, fetched_at, retry_after = entry
+                if value is not None and now - fetched_at < self.ttl:
+                    self.entries.move_to_end(key)
+                    return json.loads(value)
+                if retry_after > now:
+                    if value is not None:
+                        return self._stale(value)
+                    raise RuntimeError("cached fetch failure is in backoff")
+
         lock = self.locks[hash(key) % len(self.locks)]
         with lock:
             now = time.monotonic()

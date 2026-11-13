@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenSigan home-network preview
+
+[Service]
+WorkingDirectory=%h/opensigan
+EnvironmentFile=%h/.config/opensigan/preview.env
+EnvironmentFile=-%h/.config/opensigan/neis.env
+ExecStart=%h/opensigan/.venv/bin/python -m deploy.lan_preview
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

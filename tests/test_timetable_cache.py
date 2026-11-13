@@ -368,6 +368,26 @@ class CacheTests(unittest.TestCase):
             for future in futures:
                 self.assertEqual(future.result(timeout=3), {"records": []})
 
+    def test_cache_hit_not_blocked_by_concurrent_fetch_on_same_stripe(self):
+        cache = cache_module.Cache(ttl=60, lock_stripes=1)
+        cache.get("cached_key", lambda: {"records": [1], "stale": False})
+        started = threading.Event()
+        release = threading.Event()
+        def slow_fetch():
+            started.set()
+            if not release.wait(2):
+                raise RuntimeError("slow fetch timed out")
+            return {"records": [2], "stale": False}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fetch_future = pool.submit(cache.get, "miss_key", slow_fetch)
+            self.assertTrue(started.wait(2))
+            try:
+                hit_future = pool.submit(cache.get, "cached_key", lambda: None)
+                self.assertEqual(hit_future.result(timeout=0.5), {"records": [1], "stale": False})
+            finally:
+                release.set()
+                self.assertEqual(fetch_future.result(timeout=2), {"records": [2], "stale": False})
+
     def test_stale_backoff_and_cache_limits(self):
         cache = cache_module.Cache(ttl=0, retry_delay=60, max_entries=2, max_bytes=100)
         cache.get("a", lambda: {"records": ["old"], "stale": False})

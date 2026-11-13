@@ -1,8 +1,6 @@
 # 오픈시간표
 
-컴시간의 학생 시간표와 NEIS 급식을 조회하는 MVP입니다. GitHub Pages는 정적 화면을 제공하고 Cloudflare Worker가 API를 처리합니다. 실제 Worker에서 학교 검색과 시간표 조회를 각각 한 번 확인했으며, 운영 안정성과 데이터 이용 조건은 계속 검증해야 합니다.
-
-운영 Worker에서 인증된 NEIS 학교 검색과 주간 급식 조회가 성공했습니다. 이 확인은 단일 학교 기준이며 운영 안정성은 계속 검증해야 합니다.
+컴시간의 학생 시간표와 NEIS 급식을 조회하는 서비스입니다. 화면은 GitHub Pages에서 배포하고, API는 라즈베리 파이에서 운영합니다. API 공개 전에는 같은 집 Wi-Fi에 연결한 기기에서 라즈베리 파이의 검수 페이지를 이용합니다.
 
 ## 로컬 실행
 
@@ -15,7 +13,7 @@ $env:NEIS_API_KEY = (Get-Content -Encoding UTF8 .env | Where-Object { $_ -match 
 .\.venv\Scripts\python -m backend.app
 ```
 
-프로젝트 루트의 `.env.example`을 `.env`로 복사하고 `NEIS_API_KEY=발급받은키` 형식으로 입력합니다. `.env`는 Git에서 제외되며 위 명령으로 로컬 서버를 시작할 때 읽습니다. 운영 Workers에는 별도의 서버 측 Secret을 설정해야 합니다.
+프로젝트 루트의 `.env.example`을 `.env`로 복사하고 `NEIS_API_KEY=발급받은키` 형식으로 입력합니다. `.env`는 Git에서 제외되며 위 명령으로 로컬 서버를 시작할 때 읽습니다.
 
 다른 터미널에서 다음을 실행합니다.
 
@@ -48,8 +46,9 @@ npm run build
 
 ## 배포 현황과 제한
 
-- Pages는 GitHub Actions로 빌드·배포하며 저장소 변수 `API_BASE_URL`로 Worker 주소를 지정합니다. Worker 배포와 NEIS Secret 설정은 [Workers 안내](workers-api/README.md)를 따릅니다.
-- 로컬 API는 단일 프로세스 메모리 캐시를 사용하고, 배포된 Worker는 D1 캐시와 원본별 갱신 제한을 사용합니다. 분산 환경의 동시성, 운영 모니터링과 반복 안정성은 아직 검증되지 않았습니다. 개발용 HTTP 서버를 그대로 공개하면 안 됩니다.
+- GitHub Actions는 저장소 변수 `API_BASE_URL`에 지정된 파이의 HTTPS 주소를 Pages 빌드에 사용합니다. 공개 터널이 닫혀 있으면 Pages 화면은 열리지만 데이터는 조회할 수 없습니다.
+- 파이의 [API 서비스](deploy/opensigan.service)는 `127.0.0.1:8000`에서 실행합니다. [집 Wi-Fi 검수 서비스](deploy/opensigan-preview.service)는 `~/.config/opensigan/preview.env`에 지정한 `LAN_HOST`의 8080 포트에서, API 주소를 비운 채 빌드한 `frontend/dist`와 API를 함께 제공합니다. 두 서비스는 `~/.config/opensigan/neis.env`에서 키를 읽습니다. 부팅 시 자동 시작에는 사용자 lingering이 필요합니다.
+- 파이 API는 프로세스 내 메모리 캐시를 사용합니다. 개발용 HTTP 서버는 공개망에 직접 노출하지 않습니다.
 - 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
-- Python Workers의 무료 CPU 한도와 반복 실행 적합성 판정은 미완료입니다. 기존 실험은 [Phase 0 보고서](phase0/REPORT.md)를 참고하세요.
+- Cloudflare Worker/D1은 [기존 배포 기록](workers-api/README.md)과 [Phase 0 실험](phase0/REPORT.md)에 남겨 두었습니다.
 - 실제 NEIS API 확인에는 서버 측 인증키가 필요합니다. API 키를 브라우저 번들에 포함하지 않습니다.
