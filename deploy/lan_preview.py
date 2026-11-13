@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -27,9 +28,18 @@ class PreviewHandler(Handler, SimpleHTTPRequestHandler):
         return send(self)
 
     def do_GET(self):
-        if urlsplit(self.path).path.startswith("/api/"):
+        self._timing_started = time.perf_counter()
+        self._timing_path = urlsplit(self.path).path
+        if self._timing_path.startswith("/api/"):
             return super().do_GET()
         return self._serve_frontend(SimpleHTTPRequestHandler.do_GET)
+
+    def send_response(self, code, message=None):
+        super().send_response(code, message)
+        if hasattr(self, "_timing_started"):
+            elapsed = (time.perf_counter() - self._timing_started) * 1000
+            self.send_header("Server-Timing", f"app;dur={elapsed:.2f}")
+            self.log_message("timing path=%s status=%s app_ms=%.2f", self._timing_path, code, elapsed)
 
     def do_HEAD(self):
         if urlsplit(self.path).path.startswith("/api/"):

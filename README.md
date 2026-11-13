@@ -27,6 +27,8 @@ Vite가 출력하는 로컬 주소를 열면 `/api` 요청을 로컬 API로 전�
 
 ## 검증
 
+실제 집 Wi-Fi 사용자 테스트의 요청별 처리 시간은 [2026-11-13 계측 기록](docs/latency-2026-11-13.md)에 정리했습니다. 서버 처리 시간과 화면이 표시되기까지의 전체 시간은 구분합니다.
+
 ```powershell
 .\.venv\Scripts\python -m unittest discover -s tests -v
 cd frontend
