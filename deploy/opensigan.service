@@ -7,7 +7,7 @@ Type=simple
 WorkingDirectory=%h/opensigan
 Environment=HOST=127.0.0.1
 Environment=PORT=8000
-Environment=ALLOWED_ORIGIN=https://transient-onlooker.github.io
+Environment=ALLOWED_ORIGIN=https://opencigan.mcv.kr,http://opencigan.mcv.kr,https://transient-onlooker.github.io
 EnvironmentFile=-%h/.config/opensigan/neis.env
 ExecStart=%h/opensigan/.venv/bin/python -m backend.app
 Restart=on-failure
