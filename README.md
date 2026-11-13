@@ -50,6 +50,12 @@ npm run build
 - GitHub Actions는 저장소 변수 `API_BASE_URL`에 지정된 파이의 HTTPS 주소를 Pages 빌드에 사용합니다. 공개 터널이 닫혀 있으면 Pages 화면은 열리지만 데이터는 조회할 수 없습니다.
 - 파이의 [API 서비스](deploy/opensigan.service)는 `127.0.0.1:8000`에서 실행합니다. [집 Wi-Fi 검수 서비스](deploy/opensigan-preview.service)는 `~/.config/opensigan/preview.env`에 지정한 `LAN_HOST`의 8080 포트에서, API 주소를 비운 채 빌드한 `frontend/dist`와 API를 함께 제공합니다. 두 서비스는 `~/.config/opensigan/neis.env`에서 키를 읽습니다. 부팅 시 자동 시작에는 사용자 lingering이 필요합니다.
 - 집 Wi-Fi에서 `http://<LAN_HOST>:8080/opensigan/`을 열어 검수합니다. 파이에서 `curl -f "http://<LAN_HOST>:8080/api/v1/status"`로 검수 서비스의 API 응답을 따로 확인할 수 있습니다.
+- 파이에 `rpi-guard.service`가 있으면 UFW 비활성 여부와 별개로 내부망 8080이 차단될 수 있습니다. [전용 drop-in](deploy/rpi-guard-opensigan.conf)은 기존 방화벽 파일을 수정하지 않고, 방화벽 시작 직후 `wlan0`의 `172.30.1.0/24`에서 들어오는 TCP 8080만 허용합니다. 아래 명령은 다음 방화벽 시작부터 적용하며 실행 중인 방화벽을 재시작하지 않습니다. 영구 적용을 되돌리려면 설치한 파일을 `.conf.disabled`로 옮기고 `sudo systemctl daemon-reload`를 실행합니다. 현재 활성 규칙은 별도로 남아 있으므로 즉시 철회할 때는 `sudo nft -a list chain inet rpi_guard input`에서 해당 규칙의 handle을 확인해 그 규칙만 삭제합니다.
+
+  ```bash
+  sudo install -D -m 644 ~/opensigan/deploy/rpi-guard-opensigan.conf /etc/systemd/system/rpi-guard.service.d/opensigan-lan.conf
+  sudo systemctl daemon-reload
+  ```
 - 파이 API는 Waitress와 프로세스 내 메모리 캐시를 사용합니다. 집 Wi-Fi 검수 서비스는 별도로 실행하며 공개망에 노출하지 않습니다.
 - 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
 - Cloudflare Worker/D1은 [기존 배포 기록](workers-api/README.md)과 [Phase 0 실험](phase0/REPORT.md)에 남겨 두었습니다.
