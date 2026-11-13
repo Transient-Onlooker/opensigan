@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 
-test('정규 API 경로, 매개변수와 오류를 처리한다', async () => {
+test('정규 API 경로, 매개변수와 오류를 처리한다', async (t) => {
   globalThis.location = { hostname: 'localhost' };
   const requests = [];
   globalThis.fetch = async (url) => {
@@ -24,5 +24,20 @@ test('정규 API 경로, 매개변수와 오류를 처리한다', async () => {
     ]);
     globalThis.fetch = async () => ({ ok: false, status: 503 });
     await assert.rejects(api.getMeals('neis/2', '2026-11-09', '2026-11-15'), /503/);
+    globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    await assert.rejects(api.searchSchools('서울'), /서버에 연결할 수 없어요/);
+
+    const deadline = new AbortController();
+    t.mock.method(AbortSignal, 'timeout', () => deadline.signal);
+    globalThis.fetch = async (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+    const caller = new AbortController();
+    const canceled = api.searchSchools('서울', caller.signal);
+    caller.abort();
+    await assert.rejects(canceled, { name: 'AbortError' });
+    const pending = api.searchSchools('서울');
+    deadline.abort();
+    await assert.rejects(pending, /서버 응답이 늦어요/);
   } finally { await server.close(); }
 });

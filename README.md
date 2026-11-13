@@ -31,6 +31,7 @@ Vite가 출력하는 로컬 주소를 열면 `/api` 요청을 로컬 API로 전�
 .\.venv\Scripts\python -m unittest discover -s tests -v
 cd frontend
 npm run check
+npm test
 npm run build
 ```
 
@@ -48,6 +49,7 @@ npm run build
 
 - GitHub Actions는 저장소 변수 `API_BASE_URL`에 지정된 파이의 HTTPS 주소를 Pages 빌드에 사용합니다. 공개 터널이 닫혀 있으면 Pages 화면은 열리지만 데이터는 조회할 수 없습니다.
 - 파이의 [API 서비스](deploy/opensigan.service)는 `127.0.0.1:8000`에서 실행합니다. [집 Wi-Fi 검수 서비스](deploy/opensigan-preview.service)는 `~/.config/opensigan/preview.env`에 지정한 `LAN_HOST`의 8080 포트에서, API 주소를 비운 채 빌드한 `frontend/dist`와 API를 함께 제공합니다. 두 서비스는 `~/.config/opensigan/neis.env`에서 키를 읽습니다. 부팅 시 자동 시작에는 사용자 lingering이 필요합니다.
+- 집 Wi-Fi에서 `http://<LAN_HOST>:8080/opensigan/`을 열어 검수합니다. 파이에서 `curl -f "http://<LAN_HOST>:8080/api/v1/status"`로 검수 서비스의 API 응답을 따로 확인할 수 있습니다.
 - 파이 API는 Waitress와 프로세스 내 메모리 캐시를 사용합니다. 집 Wi-Fi 검수 서비스는 별도로 실행하며 공개망에 노출하지 않습니다.
 - 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
 - Cloudflare Worker/D1은 [기존 배포 기록](workers-api/README.md)과 [Phase 0 실험](phase0/REPORT.md)에 남겨 두었습니다.
