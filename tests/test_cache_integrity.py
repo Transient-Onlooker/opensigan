@@ -28,6 +28,11 @@ class CacheIntegrityTests(unittest.TestCase):
                 release.set()
             self.assertEqual(future.result(timeout=2), {"value": "old", "stale": True})
 
+        def fail_if_called():
+            self.fail("backoff should serve the saved data without another request")
+
+        self.assertEqual(cache.get(0, fail_if_called), {"value": "old", "stale": True})
+
     def test_oversized_refresh_preserves_last_good_value(self):
         cache = Cache(ttl=0, retry_delay=60, max_bytes=80)
         cache.get("key", lambda: {"value": "old", "stale": False})

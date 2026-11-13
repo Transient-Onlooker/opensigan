@@ -38,12 +38,14 @@ class Cache:
         with lock:
             now = time.monotonic()
             previous_value = None
+            previous_fetched_at = 0
             with self.guard:
                 entry = self.entries.get(key)
                 if entry is not None:
                     self.entries.move_to_end(key)
                     value, fetched_at, retry_after = entry
                     previous_value = value
+                    previous_fetched_at = fetched_at
                     if value is not None and now - fetched_at < self.ttl:
                         return json.loads(value)
                     if retry_after > now:
@@ -62,12 +64,9 @@ class Cache:
             except Exception:
                 now = time.monotonic()
                 with self.guard:
-                    current = self.entries.get(key)
-                    previous = current[0] if current else previous_value
-                    self._store(key, current[0] if current else None, current[1] if current else 0,
-                                now + self.retry_delay)
-                if previous is not None:
-                    return self._stale(previous)
+                    self._store(key, previous_value, previous_fetched_at, now + self.retry_delay)
+                if previous_value is not None:
+                    return self._stale(previous_value)
                 raise
 
             with self.guard:
