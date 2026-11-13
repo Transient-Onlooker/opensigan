@@ -5,9 +5,9 @@
 
 **학교 시간표와 급식을 한곳에서 조회하는 웹서비스**입니다. 컴시간 시간표와 NEIS 급식을 사용하며, 프런트엔드는 Svelte, 주 백엔드는 Python입니다.
 
-[웹사이트](https://transient-onlooker.github.io/opensigan/) · [API 명세](docs/openapi.yaml) · [기능 로드맵](docs/roadmap.md)
+[웹사이트](https://opencigan.mcv.kr) · [API 명세](docs/openapi.yaml) · [기능 로드맵](docs/roadmap.md)
 
-> **현재 상태 (2026-11-14):** 개발·내부망 검수 단계입니다. GitHub Pages의 정적 화면은 배포되지만 공개 API 주소가 설정되지 않거나 터널이 닫혀 있으면 시간표/급식 조회가 동작하지 않습니다. 외부 개발자용 API의 공개 운영은 별도 검증·승인이 필요합니다.
+> **현재 상태 (2026-11-14):** 주 주소는 [opencigan.mcv.kr](https://opencigan.mcv.kr)입니다. 웹사이트는 Raspberry Pi 백엔드(Tailscale Funnel 경유)에 연결되어 시간표/급식 조회가 동작합니다. 외부 개발자용 API의 공개 운영은 별도 검증·승인이 필요합니다.
 
 ## 구현된 기능
 
@@ -54,7 +54,7 @@ Vite가 표시하는 로컬 주소의 `/opensigan/`을 엽니다. 개발 서버�
 | [지연 계측](docs/latency-2026-11-13.md) | 실제 내부망 샘플 및 측정 범위 |
 | [기여 가이드](CONTRIBUTING.md) | 이슈·PR·보안·검증 기준 |
 
-API Playground는 **API와 같은 출처로 제공하는 내부망 검수 사이트**의 `/opensigan/api-docs.html`에 있습니다. GitHub Pages에서는 상대 경로 API가 없으므로 실시간 요청 기능이 비활성화됩니다.
+API Playground는 **API와 같은 출처로 제공하는 내부망 검수 사이트**의 `/api-docs.html`에 있습니다. GitHub Pages에서는 상대 경로 API가 없으므로 실시간 요청 기능이 비활성화됩니다.
 
 ## 상태 배지의 의미
 
