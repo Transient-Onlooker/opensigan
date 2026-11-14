@@ -142,6 +142,7 @@ label{font-size:14px;font-weight:650}
 .class-cell>span{font-size:13px;color:var(--muted)}
 .class-cell .change-label{font-size:11px;padding:1px 5px;background:var(--ink);color:var(--surface);font-weight:750}
 .timetable .class-cell+.class-cell{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.grade-compact{display:none}
 .empty-cell{color:var(--muted)}
 .table-hint,.meal-note{font-size:13px;color:var(--muted);line-height:1.7;margin:12px 0}
 .freshness{display:flex;justify-content:flex-end;gap:4px 18px;font-size:12px;color:var(--muted);padding:12px 0;border-top:1px solid var(--line)}
@@ -172,7 +173,7 @@ button,.school-option,.footer-links a{transition:background-color .16s ease,colo
   html{scroll-padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
   .topbar{min-height:62px;padding:10px 16px}.brand{font-size:16px}.theme-toggle{font-size:13px;padding:8px 10px}
   main{width:calc(100% - 32px);padding-bottom:calc(100px + env(safe-area-inset-bottom,0px))}
-  .school-heading{padding:12px 0 12px;align-items:flex-start;flex-wrap:wrap}h1{font-size:22px}h2{font-size:20px}.school-facts{font-size:13px}
+  .school-heading{padding:10px 0 8px;align-items:center;flex-wrap:wrap;gap:8px}.school-heading .eyebrow{display:none}h1{font-size:22px}h2{font-size:20px}.school-facts{font-size:13px}
   .favorite-save,.share-tools{margin-bottom:8px;gap:6px}
   .favorite-save>span{font-size:12px}
   .favorite-save .secondary-button,.share-tools .secondary-button{min-height:38px;padding:5px 9px;font-size:12px}
@@ -182,6 +183,7 @@ button,.school-option,.footer-links a{transition:background-color .16s ease,colo
   .menu-label{display:none}.calendar-menu button{width:50%;min-width:0;min-height:62px;border-left:0;font-size:17px}.calendar-menu button+button{border-left:1px solid var(--line)}
   .section-heading{margin-bottom:10px;flex-wrap:wrap}.section-heading .heading-actions{width:100%;justify-content:flex-end;gap:6px}.heading-actions .secondary-button{padding:7px 9px;min-height:40px}.last-fetched{flex:1;min-width:0;white-space:normal;text-align:left;font-size:11px}.calendar-toolbar{gap:8px;grid-template-columns:44px minmax(0,1fr) 44px;padding:8px 0;margin-bottom:12px}.calendar-date strong{font-size:17px}
   .timetable:not(.comparison-table){min-width:0}.timetable:not(.comparison-table) thead th:first-child,.timetable:not(.comparison-table) tbody th{width:35px;font-size:12px}.timetable:not(.comparison-table) thead th{height:48px;font-size:13px}.timetable:not(.comparison-table) thead th small{font-size:10px;margin-top:0}.timetable:not(.comparison-table) td{height:70px;padding:5px 2px}.timetable:not(.comparison-table) .class-cell{gap:2px}.timetable:not(.comparison-table) .class-cell strong{font-size:12px;line-height:1.32;word-break:break-word}.timetable:not(.comparison-table) .class-cell>span{font-size:10px;line-height:1.3}.table-hint span{display:block}
+  .grade-comparison-scroll{display:none}.grade-compact{display:grid;gap:12px}.grade-period{border:1px solid var(--line);min-width:0}.grade-period h3{background:var(--soft);font-size:15px;padding:8px 12px;border-bottom:1px solid var(--line)}.grade-class-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.grade-class{min-width:0;padding:9px 10px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);overflow-wrap:anywhere}.grade-class:nth-child(even){border-right:0}.grade-class:last-child,.grade-class:nth-last-child(2):nth-child(odd){border-bottom:0}.grade-class h4{font-size:13px;font-weight:800;margin:0 0 4px}.grade-class .class-cell{align-items:flex-start;gap:2px}.grade-class .class-cell strong{font-size:14px;line-height:1.4}.grade-class .class-cell>span{font-size:12px}.grade-class .class-cell+.class-cell{border-top:1px solid var(--line);margin-top:7px;padding-top:7px}.grade-class.changed{box-shadow:inset 3px 0 var(--ink)}
   .timetable-switch button{min-width:0;font-size:13px;padding:7px 5px;border-bottom:0}.timetable-switch button:nth-child(2){border-right:1px solid var(--line)}
   .quick-class{gap:8px;margin-bottom:10px}.quick-class select{min-height:44px;font-size:16px}
   .display-settings-grid input:not([type="checkbox"]),.display-settings-grid select,.lesson-search-fields input,.lesson-search-fields select{font-size:16px}
@@ -190,5 +192,5 @@ button,.school-option,.footer-links a{transition:background-color .16s ease,colo
   .view-switch button{min-width:calc(50% - 1px);border-bottom:1px solid var(--line)}.view-switch button:nth-child(2){border-right:0}.view-switch button:nth-child(n+3){border-bottom:0}.timetable-switch button{min-width:0;min-height:44px;flex:1 1 0;border-bottom:0}.timetable-switch button:nth-child(2){border-right:1px solid var(--line)}.lesson-list article{grid-template-columns:64px minmax(0,1fr);gap:4px 10px}.lesson-list article>span:not(.lesson-period):not(.change-label){grid-column:2}.lesson-list article .change-label{grid-column:2;justify-self:start}.history-section{padding:12px}.history-heading{align-items:flex-start}.history-heading .secondary-button{flex:none;padding-inline:9px}
   footer{margin-top:28px}
 }
-@media(max-width:390px){main{width:calc(100% - 24px)}.topbar{padding-inline:12px}.calendar-date strong{font-size:18px}.date-picker{gap:4px}.section-heading{gap:8px}.section-heading .secondary-button{padding-inline:10px}.school-heading h1{font-size:24px}}
+@media(max-width:390px){main{width:calc(100% - 24px)}.topbar{padding-inline:12px}.calendar-date strong{font-size:17px}.date-picker{gap:4px}.section-heading{gap:8px}.section-heading .secondary-button{padding-inline:8px}.school-heading h1{font-size:20px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}
