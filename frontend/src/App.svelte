@@ -47,6 +47,7 @@
   let mealView: 'day' | 'week' = 'day';
   let dateError = '';
   let theme: 'light' | 'dark' | 'system' = 'light';
+  let animationsEnabled = true;
   let systemDark = false;
   let analyticsReady = false;
   let timetable: TimetableResponse | null = null;
@@ -404,6 +405,10 @@
     try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
   }
   function changeTheme() { setTheme(themeIsDark(theme, systemDark) ? 'light' : 'dark'); }
+  function setAnimationsEnabled(enabled: boolean) {
+    animationsEnabled = enabled;
+    try { localStorage.setItem('opensigan-animations', enabled ? 'on' : 'off'); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
+  }
   function refreshTimetable() {
     tableRefreshState = '갱신 중';
     loadTimetable(!!timetable);
@@ -494,6 +499,7 @@
       const savedAllergies: unknown = JSON.parse(localStorage.getItem('opensigan-allergies') || '[]');
       if (Array.isArray(savedAllergies)) allergySelection = [...new Set(savedAllergies.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 19))].sort((a, b) => a - b);
       const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') theme = savedTheme;
+      animationsEnabled = localStorage.getItem('opensigan-animations') !== 'off';
       const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
       const savedClass = Number(localStorage.getItem('opensigan-class')); if (Number.isInteger(savedClass) && savedClass >= 1 && savedClass <= 99) classroom = savedClass;
       const saved = localStorage.getItem('opensigan-school'); if (saved && !shared) chooseSchool(JSON.parse(saved) as School, true);
@@ -507,7 +513,7 @@
 </script>
 
 <svelte:head><title>{school?.name ?? '내 학교 캘린더'} — Opencigan</title></svelte:head>
-<div class:dark={isDark} class="app-shell">
+<div class:dark={isDark} class:motion-off={!animationsEnabled} class="app-shell">
   <a class="skip-link" href="#calendar">캘린더 본문으로 건너뛰기</a>
   <header class="topbar">
     <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16"/></svg></span><span>Opencigan</span></div>
@@ -560,6 +566,7 @@
                     <option value="light">라이트 모드</option><option value="dark">다크 모드</option><option value="system">시스템 설정 따르기</option>
                   </select>
                 </label>
+                 <label class="display-toggle"><input type="checkbox" checked={animationsEnabled} onchange={(event) => setAnimationsEnabled(event.currentTarget.checked)} /> 애니메이션 사용</label>
                  <label>과목 색상
                    <select value={displaySettings.colorMode} onchange={(event) => setColorMode(event.currentTarget.value)}>
                      <option value="none">색상 없음 (기본)</option><option value="auto">자동 색상</option><option value="custom">직접 선택</option>
