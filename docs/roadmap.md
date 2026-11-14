@@ -79,8 +79,10 @@
 ## P3 — 알림과 자동화
 
 - [ ] Webhook 구독·삭제·인증·HMAC 서명·재시도·중복 방지
-- [ ] Webhook 알림 메시지 꾸미기 — 학교·학년·반·날짜·교시·변경 전후 값 등 템플릿 변수, 메시지 미리보기, 변경 유형별 문구, Discord Embed·Telegram 등 채널별 서식
-- [ ] Web Push, Discord, Telegram 알림
+- [ ] 기존 [timetable-watcher](https://github.com/Transient-Onlooker/timetable-watcher)의 Google Chat 전송·변경 비교·메시지 생성·중복 알림 방지 로직을 OpenCigan에 재사용
+- [ ] 로그인 없이 비밀 관리 링크로 Webhook 구독 생성·수정·삭제하기
+- [ ] Webhook 알림 메시지 꾸미기 — 학교·학년·반·날짜·교시·변경 전후 값 등 템플릿 변수, 메시지 미리보기, 변경 유형별 문구, Discord Embed·Google Chat 등 채널별 서식
+- [ ] Discord·Google Chat Webhook 알림
 - [ ] 학급·변경 수업 필터, 방해 금지 시간, RSS/Atom 피드
 - [ ] Webhook 설정에서 테스트 알림 보내기와 최근 성공·실패·재전송 이력을 확인하는 기능
 - [ ] 특정 과목·교사·요일·교시·변경 유형을 조합하여 필요한 시간표 변경만 알림받는 기능
