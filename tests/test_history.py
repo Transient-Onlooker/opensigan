@@ -43,6 +43,14 @@ class HistoryTests(unittest.TestCase):
         self.store.observe("s", "w", [lesson()], datetime.now(timezone.utc) + timedelta(seconds=1))
         self.assertEqual(self.store.list("s", "w")["changes"][0]["type"], "added")
 
+    def test_null_teacher_is_normalized_before_sqlite_snapshot(self):
+        base = datetime.now(timezone.utc)
+        self.store.observe("s", "w", [lesson("Math", None)], base)
+        self.store.observe("s", "w", [lesson("Science", "Kim")], base + timedelta(seconds=1))
+        changes = self.store.list("s", "w")["changes"]
+        self.assertEqual(changes[0]["before"], {"subject": "Math", "teacher": ""})
+        self.assertEqual(changes[0]["after"], {"subject": "Science", "teacher": "Kim"})
+
     def test_latest_started_request_wins_but_observed_time_is_reported(self):
         base = datetime.now(timezone.utc)
         self.store.observe("s", "w", [lesson("new")], base + timedelta(seconds=2), started_at=base + timedelta(seconds=1))

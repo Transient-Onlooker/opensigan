@@ -50,8 +50,8 @@ class HistoryStore:
 
     @staticmethod
     def _value(record):
-        return {"subject": record.get("subject", ""),
-                "teacher": record.get("teacher", "")}
+        return {"subject": record.get("subject") or "",
+                "teacher": record.get("teacher") or ""}
 
     @staticmethod
     def _timestamp(value):
