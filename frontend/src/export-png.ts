@@ -182,7 +182,7 @@ export async function createTimetablePng(options: ExportOptions) {
   return { blob, filename };
 }
 
-function downloadPng(blob: Blob, filename: string) {
+function downloadFile(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -195,7 +195,21 @@ function downloadPng(blob: Blob, filename: string) {
 
 export async function saveTimetablePng(options: ExportOptions) {
   const { blob, filename } = await createTimetablePng(options);
-  downloadPng(blob, filename);
+  downloadFile(blob, filename);
+}
+
+export async function saveTimetablePdf(options: ExportOptions) {
+  const [{ PDFDocument, PageSizes }, { blob, filename }] = await Promise.all([
+    import('pdf-lib'), createTimetablePng(options),
+  ]);
+  const pdf = await PDFDocument.create();
+  const image = await pdf.embedPng(await blob.arrayBuffer());
+  const [width, height] = PageSizes.A4;
+  const page = pdf.addPage(options.view === 'today' ? [width, height] : [height, width]);
+  const size = image.scaleToFit(page.getWidth() - 48, page.getHeight() - 48);
+  page.drawImage(image, { ...size, x: (page.getWidth() - size.width) / 2, y: page.getHeight() - size.height - 24 });
+  const bytes = await pdf.save();
+  downloadFile(new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), filename.replace(/\.png$/, '.pdf'));
 }
 
 export async function shareTimetablePng(options: ExportOptions): Promise<'shared' | 'downloaded' | 'cancelled'> {
@@ -212,6 +226,6 @@ export async function shareTimetablePng(options: ExportOptions): Promise<'shared
       // 공유를 지원하지 않거나 사용자 동작이 만료된 브라우저에서는 파일 저장으로 전환합니다.
     }
   }
-  downloadPng(blob, filename);
+  downloadFile(blob, filename);
   return 'downloaded';
 }

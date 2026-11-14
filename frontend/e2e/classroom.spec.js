@@ -67,6 +67,12 @@ test('switching classes updates lessons, PNG and both links', async ({ page }) =
   const download = page.waitForEvent('download');
   await panel.getByRole('button', { name: 'PNG 저장' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.png$/);
+  const pdfDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'PDF 저장' }).click();
+  const pdf = await pdfDownload;
+  expect(pdf.suggestedFilename()).toMatch(/\.pdf$/);
+  const { readFile } = await import('node:fs/promises');
+  expect((await readFile(await pdf.path())).subarray(0, 5).toString()).toBe('%PDF-');
 
   await page.getByRole('button', { name: '캘린더 구독 링크' }).click();
   const subscription = page.getByLabel(/시간표 구독 URL/);
