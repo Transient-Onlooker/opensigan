@@ -225,10 +225,15 @@ button,.school-option,.footer-links a{transition:background-color .16s ease,colo
 .grade-compact.density-relaxed{gap:16px}
 .grade-compact.density-relaxed .grade-class{padding:15px 12px}
 @media(max-width:700px){
+  .section-heading .heading-actions{justify-content:flex-start}
+  .heading-actions .last-fetched{flex:0 0 100%;white-space:normal;overflow-wrap:normal}
+  .timetable:not(.comparison-table) td{height:49px;padding:3px 2px}
   .timetable.density-compact:not(.comparison-table) thead th{height:40px}
-  .timetable.density-compact:not(.comparison-table) td{height:56px;padding:4px 2px}
+  .timetable.density-compact:not(.comparison-table) td{height:42px;padding:3px 2px}
   .timetable.density-relaxed:not(.comparison-table) thead th{height:66px}
   .timetable.density-relaxed:not(.comparison-table) td{height:94px;padding:10px 4px}
+  .teacher-table .class-cell strong{font-size:11px}
+  .teacher-table .class-cell strong span,.grade-class h4{white-space:nowrap}
   .lesson-list.density-compact article{gap:4px 8px}
   .lesson-list.density-relaxed article{gap:8px 12px}
 }

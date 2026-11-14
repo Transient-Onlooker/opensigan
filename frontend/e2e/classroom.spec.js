@@ -22,12 +22,18 @@ test('switching classes updates lessons, PNG and both links', async ({ page }) =
   await page.goto('/');
   await page.getByRole('searchbox', { name: '학교 찾기' }).fill('봄빛');
   await page.getByRole('button', { name: /봄빛고등학교/ }).click();
+  await expect(page.getByRole('searchbox', { name: '학교 찾기' })).toHaveCount(0);
   const panel = page.locator('#timetable-panel');
   const weekTable = panel.getByRole('table');
   await expect(panel.getByRole('button', { name: '이번 주', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(weekTable.getByText('샘플 수학', { exact: true })).toBeVisible();
   await expect(weekTable.locator('th[aria-current="date"]')).toContainText('오늘');
   await expect(weekTable.locator('td.today-column')).toContainText('샘플 수학');
+  const rowHeight = await weekTable.locator('tbody tr').first().evaluate((row) => row.getBoundingClientRect().height);
+  expect(rowHeight).toBeLessThan(60);
+  const collection = await panel.locator('.last-fetched').boundingBox();
+  const refresh = await panel.getByRole('button', { name: /시간표 새로고침/ }).boundingBox();
+  expect(collection.y + collection.height).toBeLessThanOrEqual(refresh.y);
   await panel.getByRole('button', { name: /시간표 새로고침/ }).click();
   await expect(panel.locator('.refresh-feedback')).toContainText('마지막 확인');
   await page.getByRole('button', { name: '설정', exact: true }).click();
