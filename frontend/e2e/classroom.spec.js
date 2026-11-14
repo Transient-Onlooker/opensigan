@@ -47,9 +47,14 @@ test('switching classes updates lessons, PNG and both links', async ({ page }) =
   await expect(page.getByRole('heading', { name: '설정', exact: true })).toBeVisible();
   await expect(page.getByText('급식 알레르기 설정', { exact: true })).toBeVisible();
   await expect(panel).toBeHidden();
+  await page.getByText('시간표 표시 설정', { exact: true }).click();
+  await page.getByRole('checkbox', { name: '1학년 1반만 따로 설정' }).check();
+  await page.getByRole('checkbox', { name: '주간 시간표 머리글에 날짜 표시' }).uncheck();
   await page.getByRole('navigation', { name: '캘린더 메뉴' }).getByRole('button', { name: '시간표', exact: true }).click();
+  await expect(weekTable.locator('thead small.sr-only')).toHaveCount(5);
   const classes = panel.locator('.quick-class select').nth(1);
   await classes.selectOption('2');
+  await expect(weekTable.locator('thead small.sr-only')).toHaveCount(0);
   await expect(weekTable.getByText('샘플 과학', { exact: true })).toBeVisible();
   await expect(weekTable.getByText('샘플 수학', { exact: true })).toHaveCount(0);
   await panel.getByRole('button', { name: '이력 보기' }).click();

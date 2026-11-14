@@ -27,6 +27,9 @@
   let timetableView: 'today' | 'week' | 'grade' | 'teacher' = 'week';
   let teacherQuery = '';
   let displaySettings: DisplaySettings = defaultDisplaySettings();
+  let schoolDisplaySettings: DisplaySettings = defaultDisplaySettings();
+  let useClassDisplay = false;
+  const classDisplayDrafts = new Map<string, DisplaySettings | null>();
   let lessonTimes: LessonTimes = {};
   let lessonTimeDrafts: Record<number, { start: string; end: string }> = {};
   let lessonTimeState = '';
@@ -154,9 +157,36 @@
     const color = subjectColor(subject, displaySettings);
     return color ? `background-color:${color};color:${subjectTextColor(color)}` : undefined;
   }
+  $: classDisplayKey = school ? `opensigan-class-display:${school.id}:${grade}:${classroom}` : '';
+  $: if (classDisplayKey) loadClassDisplay(classDisplayKey, schoolDisplaySettings);
+
+  function loadClassDisplay(key: string, fallback: DisplaySettings) {
+    let saved = classDisplayDrafts.get(key);
+    if (saved === undefined) {
+      try {
+        const raw = localStorage.getItem(key);
+        saved = raw ? parseDisplaySettings(JSON.parse(raw)) : null;
+      } catch { saved = null; }
+    }
+    useClassDisplay = saved !== null;
+    displaySettings = saved ?? fallback;
+  }
+  function setClassDisplay(enabled: boolean) {
+    if (!classDisplayKey) return;
+    classDisplayDrafts.set(classDisplayKey, enabled ? displaySettings : null);
+    try {
+      if (enabled) localStorage.setItem(classDisplayKey, JSON.stringify(displaySettings));
+      else localStorage.removeItem(classDisplayKey);
+    } catch { /* 현재 페이지에서는 변경을 유지합니다. */ }
+    loadClassDisplay(classDisplayKey, schoolDisplaySettings);
+  }
   function saveDisplaySettings(next: DisplaySettings) {
     displaySettings = next;
-    if (school) { try { localStorage.setItem('opensigan-display:' + school.id, JSON.stringify(next)); } catch { /* 현재 설정은 페이지에서 유지됩니다. */ } }
+    if (!school) return;
+    if (useClassDisplay) classDisplayDrafts.set(classDisplayKey, next);
+    else schoolDisplaySettings = next;
+    try { localStorage.setItem(useClassDisplay ? classDisplayKey : 'opensigan-display:' + school.id, JSON.stringify(next)); }
+    catch { /* 현재 설정은 페이지에서 유지됩니다. */ }
   }
   function saveAlias(kind: 'subject' | 'teacher', key: string, value: string) {
     if (!key) return;
@@ -176,12 +206,17 @@
   function clearSubjectColors() { saveDisplaySettings({ ...displaySettings, subjectColors: {} }); }
 
   function resetDisplaySettings() {
-    saveDisplaySettings(defaultDisplaySettings());
-    settingsBackupState = '현재 학교의 시간표 표시 설정을 초기화했어요.';
+    if (useClassDisplay) {
+      setClassDisplay(false);
+      settingsBackupState = '현재 학급에 학교 기본 설정을 다시 적용했어요.';
+    } else {
+      saveDisplaySettings(defaultDisplaySettings());
+      settingsBackupState = '현재 학교의 시간표 표시 설정을 초기화했어요.';
+    }
   }
   function downloadSettingsBackup() {
     if (!school) return;
-    const contents = createSettingsBackup(school.id, displaySettings, lessonTimes);
+    const contents = createSettingsBackup(school.id, schoolDisplaySettings, lessonTimes);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
@@ -216,7 +251,7 @@
         } catch { /* 저장소 접근이 차단되었다면 이후 새로고침으로 확인할 수 있어요. */ }
         throw new Error('브라우저 저장소에 설정을 저장하지 못했어요.');
       }
-      displaySettings = backup.displaySettings;
+      schoolDisplaySettings = backup.displaySettings;
       lessonTimes = backup.lessonTimes;
       lessonTimeDrafts = { ...backup.lessonTimes };
       lessonTimeState = '';
@@ -336,8 +371,8 @@
     schoolRequest?.abort(); clearTimeout(schoolTimer); neisRequest?.abort(); mealRequest?.abort(); historyRequest?.abort();
     school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = ''; schoolEditorOpen = false;
     selectedSubject = ''; selectedTeacher = ''; teacherQuery = '';
-    try { displaySettings = parseDisplaySettings(JSON.parse(localStorage.getItem('opensigan-display:' + value.id) || 'null')); }
-    catch { displaySettings = defaultDisplaySettings(); }
+    try { schoolDisplaySettings = parseDisplaySettings(JSON.parse(localStorage.getItem('opensigan-display:' + value.id) || 'null')); }
+    catch { schoolDisplaySettings = defaultDisplaySettings(); }
     try { lessonTimes = parseLessonTimes(JSON.parse(localStorage.getItem('opensigan-lesson-times:' + value.id) || 'null')); }
     catch { lessonTimes = {}; }
     lessonTimeDrafts = { ...lessonTimes }; lessonTimeState = '';
@@ -876,6 +911,7 @@
            {#if school}
              <details class="display-settings">
                <summary>시간표 표시 설정</summary>
+               <label class="display-toggle"><input type="checkbox" checked={useClassDisplay} disabled={classError} onchange={(event) => setClassDisplay(event.currentTarget.checked)} /> {grade}학년 {classroom}반만 따로 설정</label>
                <div class="display-settings-grid">
                 <label>테마
                   <select value={theme} onchange={(event) => setTheme(event.currentTarget.value)}>
@@ -933,7 +969,7 @@
                    <input type="text" value={displaySettings.teacherSuffix} maxlength="30" placeholder="예: T" oninput={(event) => saveDisplaySettings({ ...displaySettings, teacherSuffix: event.currentTarget.value })} />
                  </label>
                </div>
-               <p class="display-settings-hint">원본 시간표는 그대로 유지되며 이 학교의 표시 설정만 브라우저에 저장됩니다.</p>
+               <p class="display-settings-hint">{useClassDisplay ? '현재 학급에만 적용돼요.' : '별도 설정이 없는 이 학교 학급에 적용돼요.'}</p>
              </details>
              <details class="lesson-time-settings">
                <summary>학교 교시 시각 설정</summary>
@@ -956,7 +992,7 @@
                <div class="lesson-time-actions">
                  <button class="secondary-button" type="button" onclick={downloadSettingsBackup}>설정 파일 저장</button>
                  <label class="settings-import">설정 파일 불러오기 <input type="file" accept=".json,application/json" aria-label="Opencigan 설정 JSON 파일 불러오기" onchange={importSettingsFile} /></label>
-                 <button class="secondary-button" type="button" onclick={resetDisplaySettings}>표시 설정 초기화</button>
+                 <button class="secondary-button" type="button" onclick={resetDisplaySettings}>{useClassDisplay ? '이 학급에 학교 기본 설정 적용' : '학교 표시 설정 초기화'}</button>
                </div>
                {#if settingsBackupState}<p class="state-inline" role="status">{settingsBackupState}</p>{/if}
              </details>
