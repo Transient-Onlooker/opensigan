@@ -3,6 +3,7 @@
   import { currentKoreaDate, monday, addDays, clampWeek } from './date';
   import { resolveMealSchool, mealSchoolCandidates } from './neis-match';
   import { isAnalyticsEnabled, setAnalyticsEnabled, trackPageView } from './analytics';
+  import { shareClassUrl, readSharedClass, findLessons } from './sharing';
   import { apiNotConfigured, getMeals, getTimetable, getTimetableHistory, searchSchools, searchNeisSchools, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse, type TimetableChange } from './api';
 
   let school: School | null = null;
@@ -17,6 +18,10 @@
   let view: 'timetable' | 'meals' = 'timetable';
   let timetableView: 'today' | 'week' | 'grade' | 'teacher' = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 700px)').matches ? 'today' : 'week';
   let teacherQuery = '';
+  let lessonQuery = '';
+  let lessonWeekday = '';
+  let shareUrl = '';
+  let shareState = '';
   let grade = 1;
   let classroom = 1;
   let classError = false;
@@ -25,6 +30,7 @@
   let current = monday(today);
   let week = current;
   let mealDate = today;
+  let mealView: 'day' | 'week' = 'day';
   let dateError = '';
   let theme: 'light' | 'dark' = 'light';
   let analyticsEnabled = true;
@@ -66,6 +72,8 @@
   $: dates = Array.from({ length: weekendClasses ? 7 : 5 }, (_, i) => addDays(week, i));
   $: periods = Array.from({ length: Math.max(0, ...filtered.map((r) => Number(r.period))) }, (_, i) => i + 1);
   $: dayMeals = meals.filter((meal) => meal.date === mealDate);
+  $: mealDates = Array.from({ length: 7 }, (_, index) => addDays(monday(mealDate), index));
+  $: matchingLessons = lessonQuery.trim() || lessonWeekday ? findLessons(filtered, lessonQuery, lessonWeekday) : [];
   $: if (analyticsReady) trackPageView(view === 'meals' ? '/meals' : '/timetable');
 
   function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) {
@@ -75,7 +83,7 @@
     if (!value || Number.isNaN(Date.parse(value))) return '정보 없음';
     return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
   }
-  function changeTypeText(type: string) { return type === 'added' ? '추가' : type === 'removed' ? '삭제' : type === 'changed' ? '변경' : type; }
+  function changeTypeText(type: string) { return type === 'added' ? '추가' : type === 'deleted' ? '삭제' : type === 'changed' ? '변경' : type; }
   function errorText(error: unknown) { return error instanceof Error ? error.message : '요청을 완료하지 못했어요.'; }
   function record(date: string, period: number): TimetableRecord | undefined { return filtered.find((r) => r.date === date && Number(r.period) === period); }
   function neisKey(id: string) { return 'opensigan-neis:' + id; }
@@ -96,6 +104,7 @@
     }, 250);
   }
   function chooseSchool(value: School) {
+    shareUrl = ''; shareState = '';
     schoolRequest?.abort(); clearTimeout(schoolTimer); neisRequest?.abort(); mealRequest?.abort(); historyRequest?.abort();
     school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = ''; schoolEditorOpen = false;
     historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; historyRequestKey = '';
@@ -232,6 +241,7 @@
     try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
   }
   function updateClass(event: Event) {
+    shareUrl = ''; shareState = '';
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
     classError = !Number.isInteger(value) || value < 1 || value > 99;
     if (!classError) classroom = value;
@@ -240,14 +250,26 @@
     updateClass(event);
     if (!classError) { try { localStorage.setItem('opensigan-class', String(classroom)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   }
-  function saveGrade() { try { localStorage.setItem('opensigan-grade', String(grade)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
+  function saveGrade() { shareUrl = ''; shareState = ''; try { localStorage.setItem('opensigan-grade', String(grade)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   function toggleAnalytics() {
     analyticsEnabled = !analyticsEnabled;
     setAnalyticsEnabled(analyticsEnabled);
     if (analyticsEnabled) trackPageView(view === 'meals' ? '/meals' : '/timetable');
   }
 
+  async function shareClass() {
+    if (!school || classError) return;
+    shareUrl = shareClassUrl(window.location.href, school, Number(grade), Number(classroom));
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      shareState = '학급 링크를 복사했어요.';
+    } catch {
+      shareState = '아래 링크를 선택해 복사해 주세요.';
+    }
+  }
+
   onMount(() => {
+    const shared = typeof window !== 'undefined' && window.location?.hash ? readSharedClass(window.location.hash) : null;
     analyticsEnabled = isAnalyticsEnabled();
     analyticsReady = true;
     refreshCalendar();
@@ -259,8 +281,9 @@
       const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
       const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
       const savedClass = Number(localStorage.getItem('opensigan-class')); if (Number.isInteger(savedClass) && savedClass >= 1 && savedClass <= 99) classroom = savedClass;
-      const saved = localStorage.getItem('opensigan-school'); if (saved) chooseSchool(JSON.parse(saved) as School);
+      const saved = localStorage.getItem('opensigan-school'); if (saved && !shared) chooseSchool(JSON.parse(saved) as School);
     } catch { /* 저장소를 사용할 수 없으면 기본 설정으로 시작합니다. */ }
+    if (shared) { grade = shared.grade; classroom = shared.classroom; chooseSchool(shared.school); }
     return () => {
       clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', refreshCalendar); historyRequest?.abort();
       clearTimeout(schoolTimer); schoolRequest?.abort(); neisRequest?.abort(); tableRequest?.abort(); mealRequest?.abort();
@@ -280,6 +303,10 @@
       <div><p class="eyebrow">내 학교 캘린더</p><h1>{school?.name ?? '어느 학교에 다니나요?'}</h1><p class="school-facts">{school ? school.region + ' · ' + grade + '학년 ' + classroom + '반' : '학교를 한 번 고르면 시간표와 급식을 함께 볼 수 있어요.'}</p></div>
       {#if school}<button class="secondary-button" onclick={() => schoolEditorOpen = !schoolEditorOpen} aria-expanded={schoolEditorOpen} aria-controls="school-settings">학교·학급 변경</button>{/if}
     </section>
+    {#if school}
+      <div class="share-tools"><button class="secondary-button" disabled={classError} onclick={shareClass}>학급 링크 복사</button><span role="status">{shareState}</span></div>
+      {#if shareUrl}<label class="shared-link">공유 링크<input type="text" readonly value={shareUrl} onfocus={(event) => event.currentTarget.select()} /></label>{/if}
+    {/if}
     {#if apiNotConfigured}<p class="notice" role="alert">학교 정보를 불러올 API 주소가 설정되지 않았어요.</p>{/if}
     {#if schoolEditorOpen || !school}
       <section id="school-settings" class="school-panel" aria-label="학교 및 학급 선택">
@@ -311,6 +338,7 @@
           <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '다음 주'}</p><h2 id="timetable-title">우리 반 시간표</h2></div><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div>
           <div class="view-switch" role="group" aria-label="시간표 보기"><button aria-pressed={timetableView === 'today'} onclick={() => selectTimetableView('today')}>오늘</button><button aria-pressed={timetableView === 'week'} onclick={() => selectTimetableView('week')}>주간 반</button><button aria-pressed={timetableView === 'grade'} onclick={() => selectTimetableView('grade')}>학년 비교</button><button aria-pressed={timetableView === 'teacher'} onclick={() => selectTimetableView('teacher')}>교사 찾기</button></div>
           <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeWeek(-1)} disabled={week <= current} aria-label="이전 주">←</button><div class="calendar-date" aria-live="polite"><strong>{dateText(week)} — {dateText(addDays(week, weekendClasses ? 6 : 4))}</strong><span>{weekendClasses ? '월요일부터 일요일' : '월요일부터 금요일'}</span></div><button class="arrow-button" onclick={() => changeWeek(1)} disabled={week >= addDays(current, 7)} aria-label="다음 주">→</button></div>
+          {#if timetable && !classError}<details class="lesson-search"><summary>우리 반 수업 검색</summary><div class="lesson-search-fields"><label>과목·교사<input type="search" bind:value={lessonQuery} placeholder="과목 또는 교사 이름" maxlength="100" /></label><label>요일<select bind:value={lessonWeekday}><option value="">모든 요일</option>{#each ['일', '월', '화', '수', '목', '금', '토'] as day, index}<option value={String(index)}>{day}요일</option>{/each}</select></label></div>{#if lessonQuery.trim() || lessonWeekday}<p role="status">{matchingLessons.length}개 수업</p><div class="lesson-list">{#each matchingLessons as lesson}<article><span class="lesson-period">{dateText(lesson.date, { weekday: 'short' })} · {lesson.period}교시</span><strong>{lesson.subject || '수업 정보 없음'}</strong><span>{lesson.teacher || '교사 정보 없음'}</span></article>{/each}</div>{:else}<p>현재 선택한 학급의 주간 시간표에서 검색합니다.</p>{/if}</details>{/if}
           {#if tableState}<div class="notice" role="alert">{timetable ? '이전 시간표를 표시하고 있어요. ' : ''}{tableState} <button class="text-button" onclick={() => loadTimetable(!!timetable)}>다시 시도</button></div>{/if}
           {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>학교와 학급을 선택하면 시간표가 표시돼요.</p></div>
           {:else if tableLoading && !timetable}<div class="state-message" role="status"><strong>시간표를 불러오고 있어요.</strong></div>
@@ -340,7 +368,8 @@
         </section>
         <section id="meals-panel" hidden={view !== 'meals'} aria-labelledby="meals-title">
           <div class="section-heading"><div><p class="eyebrow">{mealDate === today ? '오늘의 식단' : '하루 식단'}</p><h2 id="meals-title">학교 급식</h2></div><button class="secondary-button" onclick={todayMeals}>오늘로</button></div>
-          <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeMealDate(-1)} aria-label="이전 날짜">←</button><div class="calendar-date"><strong aria-live="polite">{dateText(mealDate, { month: 'long', day: 'numeric', weekday: 'long' })}</strong><label class="date-picker">날짜 선택 <input type="date" value={mealDate} onchange={selectMealDate} aria-invalid={!!dateError} /></label></div><button class="arrow-button" onclick={() => changeMealDate(1)} aria-label="다음 날짜">→</button></div>
+          <div class="view-switch" role="group" aria-label="급식 보기"><button aria-pressed={mealView === 'day'} onclick={() => mealView = 'day'}>하루 식단</button><button aria-pressed={mealView === 'week'} onclick={() => mealView = 'week'}>주간 식단</button></div>
+          <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? -7 : -1)} aria-label={mealView === 'week' ? '이전 급식 주' : '이전 날짜'}>←</button><div class="calendar-date"><strong aria-live="polite">{mealView === 'week' ? dateText(mealDates[0]) + ' — ' + dateText(mealDates[6]) : dateText(mealDate, { month: 'long', day: 'numeric', weekday: 'long' })}</strong><label class="date-picker">날짜 선택 <input type="date" value={mealDate} onchange={selectMealDate} aria-invalid={!!dateError} /></label></div><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? 7 : 1)} aria-label={mealView === 'week' ? '다음 급식 주' : '다음 날짜'}>→</button></div>
           {#if dateError}<p class="notice" role="alert">{dateError}</p>{/if}
           <div class="meal-connection" aria-live="polite">{#if neis}<span>{neis.name} · {neis.address} · 급식 연결됨</span>{:else if school}<span>{neisSearchState}</span>{/if}</div>
           {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>시간표 학교를 선택하면 급식도 함께 연결돼요.</p></div>
@@ -351,7 +380,8 @@
             {#if mealState}<div class="notice" role="alert">{hasMeals ? '이전 급식 정보를 표시하고 있어요. ' : ''}{mealState} <button class="text-button" onclick={() => loadMeals(true)}>다시 시도</button></div>{/if}
             {#if mealLoading && !hasMeals}<div class="state-message" role="status">식단을 불러오고 있어요.</div>
             {:else if hasMeals}
-              <div class="meal-cards">{#each mealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}<li>{dish}</li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>
+              {#if mealView === 'day'}<div class="meal-cards">{#each mealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}<li>{dish}</li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>
+              {:else}<div class="weekly-meals">{#each mealDates as date}<article class:current-meal-day={date === today}><h3>{dateText(date, { month: 'numeric', day: 'numeric', weekday: 'long' })}{date === today ? ' · 오늘' : ''}</h3><div class="weekly-meal-types">{#each mealTypes as type}<section aria-label={dateText(date) + ' ' + type}><h4>{type}</h4>{#if meals.some((meal) => meal.date === date && meal.type === type)}<ul class="dishes">{#each meals.filter((meal) => meal.date === date && meal.type === type) as meal}{#each meal.dishes as dish}<li>{dish}</li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 식단이 없어요.</p>{/if}</section>{/each}</div></article>{/each}</div>{/if}
               <p class="meal-note">식단 뒤의 숫자는 알레르기 정보예요. 학교에서 안내하는 원본 식단도 확인해 주세요.</p>
             {/if}
             {#if mealsStale}<p class="notice">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
@@ -359,6 +389,6 @@
         </section>
     </div>
     <p class="analytics-note">임의의 브라우저 식별자를 가명 처리해 방문 통계를 집계합니다. IP와 브라우저 정보는 분석 DB에 저장하지 않습니다. <button class="text-button" aria-pressed={analyticsEnabled} onclick={toggleAnalytics}>통계 수집 {analyticsEnabled ? '끄기' : '켜기'}</button></p>
-    <footer><p>학교·학급 설정은 이 기기에 저장돼요.</p><div class="footer-open"><svg class="github-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.72.39-1.22.7-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.24 1.16-3.03-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.16A10.8 10.8 0 0 1 12 6.17c.96 0 1.92.13 2.82.38 2.15-1.46 3.1-1.16 3.1-1.16.61 1.55.23 2.7.11 2.98.72.79 1.16 1.8 1.16 3.03 0 4.32-2.63 5.27-5.14 5.55.4.35.76 1.03.76 2.08v3.1c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z"/></svg><div><strong>함께 만드는 오픈소스</strong><p>Opencigan은 오픈소스 프로젝트예요. GitHub에서 함께 기여해 주세요.</p><div class="footer-links"><a href="https://github.com/Transient-Onlooker/opensigan">Opencigan GitHub ↗</a><a href="https://github.com/hegelty/pycomcigan">pycomcigan ↗</a><a href="https://transient-onlooker.github.io/opensigan/">Opencigan 사이트 ↗</a><a href="/opensigan/api-docs.html">API 문서</a></div></div></div></footer>
+    <footer><p>학교·학급 설정은 이 기기에 저장돼요.</p><div class="footer-open"><svg class="github-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.72.39-1.22.7-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.24 1.16-3.03-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.16A10.8 10.8 0 0 1 12 6.17c.96 0 1.92.13 2.82.38 2.15-1.46 3.1-1.16 3.1-1.16.61 1.55.23 2.7.11 2.98.72.79 1.16 1.8 1.16 3.03 0 4.32-2.63 5.27-5.14 5.55.4.35.76 1.03.76 2.08v3.1c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z"/></svg><div><strong>함께 만드는 오픈소스</strong><p>Opencigan은 오픈소스 프로젝트예요. GitHub에서 함께 기여해 주세요.</p><div class="footer-links"><a href="https://github.com/Transient-Onlooker/opensigan">Opencigan GitHub ↗</a><a href="https://github.com/hegelty/pycomcigan">pycomcigan ↗</a><a href="https://opencigan.mcv.kr/">Opencigan 사이트 ↗</a><a href="/api-docs.html">API 문서</a></div></div></div></footer>
   </main>
 </div>

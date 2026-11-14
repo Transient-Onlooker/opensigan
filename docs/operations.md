@@ -50,13 +50,23 @@ journalctl --user -u opensigan-preview -n 30 --no-pager
 - `rpi-guard-opensigan.conf`는 특정 LAN 대역·`wlan0`·8080 포트만 허용하도록 설계된 선택적 drop-in입니다. 이는 방화벽 재시작 때 적용되며, 파일을 제거해도 **이미 적용된 nftables 규칙이 즉시 사라지지는 않습니다**. 규칙 삭제 전 반드시 정확한 handle을 확인하세요.
 - SSH, Tailscale, RPi 기본 방화벽, 다른 워처 서비스는 이 문서만 보고 변경하지 마세요. 외부 포트 개방과 Cloudflare Tunnel 설정은 별도 승인·검증 절차입니다.
 
-## 공개 전 체크리스트
-
 ## 자동 셔터와 통계
 
 Pi 작업 폴더에만 있던 `backend/shutter.py`와 회귀 검증을 저장소에 통합했습니다. 프로세스별 기본 임계치는 60초에 600요청 또는 1분 load average 8이며, 초과 시 30초 동안 `503 service_overloaded`와 `Retry-After`를 반환합니다. `SHUTTER_MAX_REQUESTS`, `SHUTTER_WINDOW_SECONDS`, `SHUTTER_COOLDOWN_SECONDS`, `SHUTTER_MAX_LOAD`로 조절합니다. 요청량·부하 조건은 각각 0이면 비활성화되며, load average가 없는 OS에서는 부하 조건을 적용하지 않습니다. 상태 확인과 인증을 요구하는 관리자 통계는 셔터 중에도 조회할 수 있습니다. OPTIONS는 셔터에 포함되지 않습니다. 프로세스별 제한이므로 전체 서비스 합산 제한은 아닙니다.
 
 통계 설정과 운영 지표의 의미는 [이용 통계](analytics.md)를 참고하세요. 내부망 서버는 최신 `/assets/...` 경로와 기존 `/opensigan/assets/...` 경로를 모두 제공합니다.
+
+### 2026-11-14 이용 통계 릴리스
+
+커밋 `555e9fcd5552dabaea89fd4a0ade5a2861f39fe1`을 `/home/admin/opensigan-releases/usage-555e9fc`에 별도 배치했습니다. 전송 패키지 SHA-256은 `e4737fc1e842039d020b44c26cfe5ce050f02c1d8d8c53ab1dd6a86a95a9dc76`입니다. 기존 `~/opensigan`의 미커밋 코드와 이전 P0 릴리스는 유지했습니다. Pi Python 3.14에서 85개 테스트가 통과한 뒤 두 서비스의 작업 경로를 전환했습니다.
+
+- API·검수 서비스 각각의 `~/.config/systemd/user/<서비스>.service.d/zz-opencigan-release.conf`가 새 작업 경로와 `~/.config/opensigan/analytics.env`를 지정합니다. 기존 서비스 파일과 P0 drop-in은 보존했습니다.
+- 통계 키와 별도 관리자 토큰은 Pi에서 생성하고 `analytics.env`에 권한 600으로 보관했습니다. DB는 `~/.local/share/opensigan/analytics.sqlite3`이며 상위 디렉터리는 권한 700입니다. 키를 Git이나 배포 번들로 전송하지 않았습니다.
+- 통계 화면은 `http://172.30.1.95:8080/analytics.html`에서 확인했습니다(HTTP 200). 관리자 API는 인증 없이 401, 서버에서 토큰을 읽어 인증하면 200입니다. 관리자는 SSH 세션에서 환경 파일의 `OPENCIGAN_ANALYTICS_ADMIN_TOKEN`을 확인할 수 있습니다. 토큰은 공유하지 마세요.
+- 원복 시 두 서비스의 위 `zz-opencigan-release.conf`를 `.conf.disabled`로 이름 변경하고 `systemctl --user daemon-reload` 후 두 서비스를 재시작합니다. 그러면 API는 기존 작업 폴더, 검수는 이전 P0 drop-in 경로를 다시 사용합니다. 통계 환경 파일과 DB는 보존할 수 있습니다.
+- 기존 Funnel 설정은 변경하지 않았습니다. 확인 시 이미 API 경로가 공개된 상태였습니다.
+
+실데이터 시간표 1회를 수집하고 동일 캐시를 2회 재조회한 Pi loopback HTTP 측정은 각각 205.03ms(MISS), 5.32ms(HIT), 4.81ms(HIT)였습니다. 각 응답은 501개 레코드·HTTP 200이었고 API 통계는 3건, 누락 0건으로 반영됐습니다. 화면 표시·LAN·인터넷 왕복 지연을 측정한 값은 아니며, 방문자 집계를 위한 가짜 페이지 이벤트는 보내지 않았습니다.
 
 ## 공개 전 체크리스트
 
