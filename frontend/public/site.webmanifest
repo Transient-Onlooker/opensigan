@@ -1,0 +1,15 @@
+{
+  "name": "Opencigan — 학교 시간표와 급식",
+  "short_name": "Opencigan",
+  "description": "우리 학교 시간표와 급식을 확인하세요.",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111111",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
