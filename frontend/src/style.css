@@ -130,6 +130,9 @@ label{font-size:14px;font-weight:650}
 .calendar-date>span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
 .date-picker{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:13px;color:var(--muted)}
 .date-picker input{min-width:0;max-width:100%;min-height:44px;border:1px solid var(--line);padding:6px 10px;color:var(--ink);background:var(--surface);font-size:16px}
+.history-filters label{flex:0 1 13rem}
+.history-list li p{display:flex;flex-wrap:wrap;gap:4px 16px}
+.history-list li p>span{min-width:0}
 .table-scroll{width:100%;overflow:auto;border:1px solid var(--line)}
 .timetable{width:100%;min-width:600px;table-layout:fixed;border-collapse:separate;border-spacing:0}
 .timetable th,.timetable td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center}

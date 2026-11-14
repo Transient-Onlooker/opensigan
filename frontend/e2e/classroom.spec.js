@@ -17,6 +17,13 @@ test('switching classes updates lessons, PNG and both links', async ({ page }) =
         })),
       } });
     }
+    if (url.pathname === '/api/v1/timetable/history') {
+      return route.fulfill({ json: { changes: [1, 2].map((room) => ({
+        grade: 1, class: room, date: '2026-11-09', period: 1, type: 'changed',
+        observedAt: '2026-11-09T01:00:00Z', before: { subject: `이전 과목 ${room}`, teacher: '이전 교사' },
+        after: { subject: `변경 과목 ${room}`, teacher: null },
+      })), nextCursor: null } });
+    }
     return route.fulfill({ json: { schools: [], meals: [], stale: false } });
   });
   await page.goto('/');
@@ -45,6 +52,13 @@ test('switching classes updates lessons, PNG and both links', async ({ page }) =
   await classes.selectOption('2');
   await expect(weekTable.getByText('샘플 과학', { exact: true })).toBeVisible();
   await expect(weekTable.getByText('샘플 수학', { exact: true })).toHaveCount(0);
+  await panel.getByRole('button', { name: '이력 보기' }).click();
+  const history = panel.getByRole('region', { name: '시간표 변경 이력' });
+  await expect(history.getByRole('listitem')).toHaveCount(1);
+  await expect(history.getByRole('listitem')).toContainText('이전 과목 2 · 이전 교사');
+  await expect(history.getByRole('listitem')).toContainText('변경 과목 2');
+  await history.getByRole('combobox').selectOption('school');
+  await expect(history.getByRole('listitem')).toHaveCount(2);
   const download = page.waitForEvent('download');
   await panel.getByRole('button', { name: 'PNG 저장' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.png$/);
