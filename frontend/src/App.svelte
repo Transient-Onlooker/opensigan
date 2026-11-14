@@ -9,6 +9,7 @@
   import { slotLessons } from './timetable-slots';
   import { dailyLessonOverview, koreaClockMinutes, parseLessonTimes, type LessonTimes } from './lesson-times';
   import { defaultDisplaySettings, parseDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor, type ColorMode, type DisplaySettings } from './personalization';
+  import { createSettingsBackup, parseSettingsBackup, MAX_SETTINGS_BACKUP_BYTES } from './settings-backup';
   import { apiNotConfigured, getMeals, getTimetable, getTimetableHistory, searchSchools, searchNeisSchools, timetableSubscriptionUrl, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse, type TimetableChange } from './api';
 
   type Favorite = { school: School; grade: number; classroom: number };
@@ -29,6 +30,7 @@
   let lessonTimes: LessonTimes = {};
   let lessonTimeDrafts: Record<number, { start: string; end: string }> = {};
   let lessonTimeState = '';
+  let settingsBackupState = '';
   let selectedSubject = '';
   let selectedTeacher = '';
   let allergySelection: number[] = [];
@@ -167,6 +169,57 @@
   }
   function clearSubjectColors() { saveDisplaySettings({ ...displaySettings, subjectColors: {} }); }
 
+  function resetDisplaySettings() {
+    saveDisplaySettings(defaultDisplaySettings());
+    settingsBackupState = '현재 학교의 시간표 표시 설정을 초기화했어요.';
+  }
+  function downloadSettingsBackup() {
+    if (!school) return;
+    const contents = createSettingsBackup(school.id, displaySettings, lessonTimes);
+    const url = URL.createObjectURL(new Blob([contents], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `opencigan-settings-${school.id.replace(/[^a-zA-Z0-9_-]/g, '-')}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    settingsBackupState = '현재 학교의 표시 설정과 교시 시각을 파일로 저장했어요.';
+  }
+  async function importSettingsFile(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !school) return;
+    const schoolId = school.id;
+    try {
+      if (file.size > MAX_SETTINGS_BACKUP_BYTES) throw new Error('설정 파일은 64KB 이하여야 해요.');
+      const backup = parseSettingsBackup(await file.text(), schoolId);
+      if (school?.id !== schoolId) throw new Error('학교가 변경되어 설정을 적용하지 않았어요.');
+      const displayKey = 'opensigan-display:' + schoolId;
+      const timesKey = 'opensigan-lesson-times:' + schoolId;
+      const previousDisplay = localStorage.getItem(displayKey);
+      const previousTimes = localStorage.getItem(timesKey);
+      try {
+        localStorage.setItem(displayKey, JSON.stringify(backup.displaySettings));
+        localStorage.setItem(timesKey, JSON.stringify(backup.lessonTimes));
+      } catch {
+        try {
+          if (previousDisplay === null) localStorage.removeItem(displayKey); else localStorage.setItem(displayKey, previousDisplay);
+          if (previousTimes === null) localStorage.removeItem(timesKey); else localStorage.setItem(timesKey, previousTimes);
+        } catch { /* 저장소 접근이 차단되었다면 이후 새로고침으로 확인할 수 있어요. */ }
+        throw new Error('브라우저 저장소에 설정을 저장하지 못했어요.');
+      }
+      displaySettings = backup.displaySettings;
+      lessonTimes = backup.lessonTimes;
+      lessonTimeDrafts = { ...backup.lessonTimes };
+      lessonTimeState = '';
+      settingsBackupState = '현재 학교의 설정을 복원했어요.';
+    } catch (error) {
+      settingsBackupState = errorText(error);
+    }
+  }
+
   function editLessonTime(period: number, part: 'start' | 'end', value: string) {
     lessonTimeDrafts = { ...lessonTimeDrafts, [period]: { start: lessonTimeDrafts[period]?.start ?? '', end: lessonTimeDrafts[period]?.end ?? '', [part]: value } };
     lessonTimeState = '';
@@ -282,6 +335,7 @@
     try { lessonTimes = parseLessonTimes(JSON.parse(localStorage.getItem('opensigan-lesson-times:' + value.id) || 'null')); }
     catch { lessonTimes = {}; }
     lessonTimeDrafts = { ...lessonTimes }; lessonTimeState = '';
+    settingsBackupState = '';
     historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; historyRequestKey = '';
     neis = null; neisResults = []; neisSearchState = ''; neisLoading = false;
     meals = []; hasMeals = false; mealsStale = false; mealState = ''; mealLoading = false; mealDataKey = ''; mealRequestKey = '';
@@ -780,6 +834,16 @@
                </div>
                <div class="lesson-time-actions"><button class="secondary-button" type="button" onclick={saveLessonTimes}>시각 저장</button><button class="secondary-button" type="button" onclick={clearLessonTimes}>시각 초기화</button></div>
                {#if lessonTimeState}<p class="state-inline" role="status">{lessonTimeState}</p>{/if}
+             </details>
+             <details class="settings-backup">
+               <summary>설정 백업·복원</summary>
+               <p class="display-settings-hint">현재 학교의 시간표 표시 설정과 교시 시각만 파일에 저장해요. 급식 알레르기 설정은 포함하지 않아요.</p>
+               <div class="lesson-time-actions">
+                 <button class="secondary-button" type="button" onclick={downloadSettingsBackup}>설정 파일 저장</button>
+                 <label class="settings-import">설정 파일 불러오기 <input type="file" accept=".json,application/json" aria-label="Opencigan 설정 JSON 파일 불러오기" onchange={importSettingsFile} /></label>
+                 <button class="secondary-button" type="button" onclick={resetDisplaySettings}>표시 설정 초기화</button>
+               </div>
+               {#if settingsBackupState}<p class="state-inline" role="status">{settingsBackupState}</p>{/if}
              </details>
            {/if}
           {#if timetable}<section class="history-section" aria-labelledby="history-title"><div class="history-heading"><div><h3 id="history-title">시간표 변경 이력</h3><p>이번 주 학교 시간표의 수집 변경 사항</p></div><button class="secondary-button" aria-expanded={historyOpen} aria-controls="history-list" onclick={toggleHistory}>{historyOpen ? '이력 닫기' : '이력 보기'}</button></div>{#if historyOpen}<div id="history-list">{#if historyDisabled}<p class="state-inline">변경 이력 저장이 아직 활성화되지 않았어요.</p>{:else if historyLoading && !historyChanges.length}<p class="state-inline" role="status">변경 이력을 불러오는 중…</p>{:else if historyError}<div class="notice" role="alert">{historyError} <button class="text-button" onclick={() => loadHistory()}>다시 시도</button></div>{:else if historyChanges.length}<ol class="history-list">{#each historyChanges as change}<li><div><strong>{change.grade}학년 {change.class}반 · {dateText(change.date)} · {change.period}교시</strong><span>{timeText(change.observedAt)} 확인 · {changeTypeText(change.type)}</span></div><p><span>{change.before ? `${change.before.subject}${change.before.teacher ? ` · ${change.before.teacher}` : ''}` : '수업 없음'}</span><span aria-hidden="true"> → </span><span>{change.after ? `${change.after.subject}${change.after.teacher ? ` · ${change.after.teacher}` : ''}` : '수업 없음'}</span></p></li>{/each}</ol>{#if historyCursor}<button class="secondary-button history-more" disabled={historyLoading} onclick={() => loadHistory(true)}>{historyLoading ? '불러오는 중…' : '이전 변경 더 보기'}</button>{:else}<p class="state-inline">표시할 변경 이력을 모두 불러왔습니다.</p>{/if}{:else if !historyLoading}<p class="state-inline">이번 주에 기록된 변경 이력이 없습니다.</p>{/if}</div>{/if}</section>{/if}
