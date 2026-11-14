@@ -38,7 +38,8 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 export const searchSchools = (q: string, signal?: AbortSignal) => get<{ schools: School[]; stale: boolean }>(`/api/v1/schools?q=${encodeURIComponent(q)}`, signal);
 export const searchNeisSchools = (q: string, signal?: AbortSignal) => get<{ schools: NeisSchool[]; stale: boolean }>(`/api/v1/neis/schools?q=${encodeURIComponent(q)}`, signal);
 export const getTimetable = (school: string, week: string, signal?: AbortSignal) => get<TimetableResponse>(`/api/v1/timetable?school=${encodeURIComponent(school)}&week=${encodeURIComponent(week)}`, signal);
-export const timetableSubscriptionUrl = (school: string, grade: number, classroom: number) =>
-  new URL(`${base}/api/v1/timetable.ics?school=${encodeURIComponent(school)}&grade=${grade}&class=${classroom}&weeks=2`, location.origin).href;
+export type SubscriptionMode = 'summary' | 'periods';
+export const timetableSubscriptionUrl = (school: string, grade: number, classroom: number, mode: SubscriptionMode = 'periods') =>
+  new URL(`${base}/api/v1/timetable.ics?school=${encodeURIComponent(school)}&grade=${grade}&class=${classroom}&weeks=2${mode === 'summary' ? '&mode=summary' : ''}`, location.origin).href;
 export const getMeals = (school: string, from: string, to: string, signal?: AbortSignal) => get<MealsResponse>(`/api/v1/meals?school=${encodeURIComponent(school)}&from=${from}&to=${to}`, signal);
 export const getTimetableHistory = (school: string, week: string, cursor?: string | null, signal?: AbortSignal) => get<TimetableHistoryResponse>(`/api/v1/timetable/history?school=${encodeURIComponent(school)}&week=${encodeURIComponent(week)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal);

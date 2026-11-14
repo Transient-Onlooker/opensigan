@@ -1,4 +1,4 @@
-"""Create an all-day calendar feed from cached timetable records."""
+"""Create a calendar feed from cached timetable records."""
 
 import hashlib
 from datetime import date, datetime, timedelta, timezone
@@ -34,7 +34,7 @@ def _stamp(value):
     return parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def render_timetable_ics(school, grade, classroom, timetables):
+def render_timetable_ics(school, grade, classroom, timetables, mode="periods"):
     name = school.split(":", 1)[1]
     lines = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Opencigan//Timetable//KO",
@@ -44,11 +44,15 @@ def render_timetable_ics(school, grade, classroom, timetables):
     ]
     for timetable in timetables:
         timestamp = _stamp(timetable.get("sourceUpdatedAt") or timetable.get("fetchedAt"))
+        days = {}
         for record in timetable["records"]:
             if int(record["grade"]) != grade or int(record["class"]) != classroom:
                 continue
             day = date.fromisoformat(record["date"])
             period = int(record["period"])
+            if mode == "summary":
+                days.setdefault(day, []).append(record)
+                continue
             identity = f"{school}|{grade}|{classroom}|{day.isoformat()}|{period}"
             uid = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32] + "@opencigan"
             subject = record.get("subject") or "수업"
@@ -62,5 +66,25 @@ def render_timetable_ics(school, grade, classroom, timetables):
                 "SUMMARY:" + _escape(f"{period}교시 {subject}"),
                 "DESCRIPTION:" + _escape("\n".join(details)), "END:VEVENT",
             ])
+        if mode == "summary":
+            for day, records in sorted(days.items()):
+                identity = f"{school}|{grade}|{classroom}|{day.isoformat()}|summary"
+                uid = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32] + "@opencigan"
+                records.sort(key=lambda record: (int(record["period"]), record.get("subject") or ""))
+                details = []
+                for record in records:
+                    item = f"{int(record['period'])}교시 {record.get('subject') or '수업'}"
+                    if record.get("teacher"):
+                        item += f" · {record['teacher']}"
+                    if record.get("isChanged"):
+                        item += " (변경)"
+                    details.append(item)
+                lines.extend([
+                    "BEGIN:VEVENT", "UID:" + uid, "DTSTAMP:" + timestamp,
+                    "DTSTART;VALUE=DATE:" + day.strftime("%Y%m%d"),
+                    "DTEND;VALUE=DATE:" + (day + timedelta(days=1)).strftime("%Y%m%d"),
+                    "SUMMARY:" + _escape(f"{name} {grade}학년 {classroom}반 · {len(records)}개 수업"),
+                    "DESCRIPTION:" + _escape("\n".join(details)), "END:VEVENT",
+                ])
     lines.append("END:VCALENDAR")
     return ("\r\n".join(part for line in lines for part in _fold(line)) + "\r\n").encode("utf-8")

@@ -143,7 +143,9 @@ label{font-size:14px;font-weight:650}
 .timetable td{height:88px;padding:10px 5px}
 .timetable thead th.today-column{background:var(--ink);color:var(--surface)}
 .timetable thead th.today-column small{color:inherit}
-.timetable td.today-column{background:var(--soft)}
+.timetable thead th .today-label{font-size:11px;line-height:1.4;font-weight:750}
+.timetable td.today-column{background:var(--soft);box-shadow:inset 2px 0 var(--ink),inset -2px 0 var(--ink)}
+.timetable tr:last-child td.today-column{box-shadow:inset 2px 0 var(--ink),inset -2px 0 var(--ink),inset 0 -2px var(--ink)}
 .timetable th.other-day,.timetable td.other-day{opacity:.72}
 .timetable td.changed{outline:2px dashed var(--ink);outline-offset:-3px}
 .class-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;overflow-wrap:anywhere;line-height:1.45}
@@ -189,7 +191,8 @@ button,.school-option,.footer-links a{transition:background-color .16s ease,colo
   .favorites-bar{padding:10px;margin-bottom:12px}
   .school-heading .secondary-button{font-size:13px}.school-panel{grid-template-columns:1fr;padding:16px;gap:16px}.selectors{grid-template-columns:1fr 1fr}
   .calendar-menu{position:fixed;z-index:10;bottom:0;left:0;width:100%;margin:0;background:var(--surface);border-top:1px solid var(--ink);padding-bottom:env(safe-area-inset-bottom,0px)}
-  .menu-label{display:none}.calendar-menu button{width:50%;min-width:0;min-height:62px;border-left:0;font-size:17px}.calendar-menu button+button{border-left:1px solid var(--line)}
+  .menu-label{display:none}.calendar-menu button{flex:1 1 0;min-width:0;min-height:62px;padding-inline:8px;border-left:0;font-size:16px}.calendar-menu button+button{border-left:1px solid var(--line)}
+  main:has(input:is([type="search"],[type="text"],[type="number"]):focus) .calendar-menu{position:static;margin-bottom:12px}
   .section-heading{margin-bottom:10px;flex-wrap:wrap}.section-heading .heading-actions{width:100%;justify-content:flex-end;gap:6px}.heading-actions .secondary-button{padding:7px 9px;min-height:40px}.last-fetched{flex:1;min-width:0;white-space:normal;text-align:left;font-size:11px}.calendar-toolbar{gap:8px;grid-template-columns:44px minmax(0,1fr) 44px;padding:8px 0;margin-bottom:12px}.calendar-date strong{font-size:17px}
   .timetable:not(.comparison-table){min-width:0}.timetable:not(.comparison-table) thead th:first-child,.timetable:not(.comparison-table) tbody th{width:35px;font-size:12px}.timetable:not(.comparison-table) thead th{height:48px;font-size:13px}.timetable:not(.comparison-table) thead th small{font-size:10px;margin-top:0}.timetable:not(.comparison-table) td{height:70px;padding:5px 2px}.timetable:not(.comparison-table) .class-cell{gap:2px}.timetable:not(.comparison-table) .class-cell strong{font-size:12px;line-height:1.32;word-break:break-word}.timetable:not(.comparison-table) .class-cell>span{font-size:10px;line-height:1.3}.table-hint span{display:block}
   .grade-comparison-scroll{display:none}.grade-compact{display:grid;gap:12px}.grade-period{border:1px solid var(--line);min-width:0}.grade-period h3{background:var(--soft);font-size:15px;padding:8px 12px;border-bottom:1px solid var(--line)}.grade-class-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.grade-class{min-width:0;padding:9px 10px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);overflow-wrap:anywhere}.grade-class:nth-child(even){border-right:0}.grade-class:last-child,.grade-class:nth-last-child(2):nth-child(odd){border-bottom:0}.grade-class h4{font-size:13px;font-weight:800;margin:0 0 4px}.grade-class .class-cell{align-items:flex-start;gap:2px}.grade-class .class-cell strong{font-size:14px;line-height:1.4}.grade-class .class-cell>span{font-size:12px}.grade-class .class-cell+.class-cell{border-top:1px solid var(--line);margin-top:7px;padding-top:7px}.grade-class.changed{box-shadow:inset 3px 0 var(--ink)}

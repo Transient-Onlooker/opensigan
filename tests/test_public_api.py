@@ -124,11 +124,44 @@ class PublicApiTests(unittest.TestCase):
                 'school=2%3AExample&grade=2&class=0',
                 'school=2%3AExample&grade=2&class=3&weeks=3',
                 'school=2%3AExample&grade=2&class=3&weeks=1&weeks=2',
+                'school=2%3AExample&grade=2&class=3&mode=invalid',
+                'school=2%3AExample&grade=2&class=3&mode=summary&mode=periods',
             ):
                 with self.subTest(query=query):
                     status, _, body = dispatch_request('GET', '/api/v1/timetable.ics', query)
                     self.assertEqual((status, json.loads(body)['code']), (400, 'invalid_request'))
             fetch.assert_not_called()
+
+    def test_calendar_summary_and_conditional_requests(self):
+        def fake_fetch(school, week):
+            return {'schoolId': school, 'weekStart': week, 'fetchedAt': '2026-11-14T00:00:00Z',
+                    'records': [dict(grade=2, **{'class': 3}, date=week, period=period, subject=subject)
+                                for period, subject in enumerate(subjects, 1)]}
+
+        subjects = ['수학', '과학']
+        path = '/api/v1/timetable.ics'
+        query = 'school=2%3AExample&grade=2&class=3&weeks=2'
+        summary = query + '&mode=summary'
+        with patch('backend.app.fetch_timetable', side_effect=fake_fetch) as fetch, \
+                patch.dict('os.environ', {'OPENCIGAN_HISTORY_DB': ''}):
+            cache = Cache()
+            self.assertEqual(dispatch_request('GET', path, query, cache)[2].count(b'BEGIN:VEVENT'), 4)
+            status, headers, body = dispatch_request('GET', path, summary, cache)
+            self.assertEqual((status, body.count(b'BEGIN:VEVENT')), (200, 2))
+            self.assertIn('1교시 수학\\n2교시 과학', body.decode().replace('\r\n ', ''))
+            for method, validator in [('GET', '"other", W/' + headers['ETag']), ('HEAD', '*')]:
+                status, cached_headers, cached_body = dispatch_request(
+                    method, path, summary, cache, request_headers={'If-None-Match': validator})
+                self.assertEqual((status, cached_headers['ETag'], cached_body), (304, headers['ETag'], b''))
+                self.assertNotIn('Content-Length', cached_headers)
+            self.assertEqual(fetch.call_count, 2)
+            subjects[1] = '영어'
+            status, next_headers, next_body = dispatch_request(
+                'GET', path, summary, Cache(), request_headers={'If-None-Match': headers['ETag']})
+            self.assertEqual(status, 200)
+            self.assertNotEqual(next_headers['ETag'], headers['ETag'])
+            self.assertEqual([line for line in body.splitlines() if line.startswith(b'UID:')],
+                             [line for line in next_body.splitlines() if line.startswith(b'UID:')])
 
     def test_history_records_only_successful_fresh_fetches(self):
         from unittest.mock import Mock

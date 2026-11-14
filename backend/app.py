@@ -1,3 +1,4 @@
+import hashlib
 import hmac
 import json
 import logging
@@ -277,6 +278,9 @@ def _dispatch_request(method, path, query_string, cache_instance=None, client=No
             weeks = _query_param(query, "weeks", 1) if "weeks" in query else "1"
             if weeks not in ("1", "2"):
                 raise ValueError("weeks는 1 또는 2여야 합니다")
+            mode = _query_param(query, "mode", 10) if "mode" in query else "periods"
+            if mode not in ("periods", "summary"):
+                raise ValueError("mode는 periods 또는 summary여야 합니다")
             now = datetime.now(timezone(timedelta(hours=9))).date()
             monday = now - timedelta(days=now.weekday())
             timetables = []
@@ -287,9 +291,15 @@ def _dispatch_request(method, path, query_string, cache_instance=None, client=No
                     timetable = {**timetable, "records": [r for r in timetable["records"]
                                  if teacher_filter in (r.get("teacher") or "").casefold()]}
                 timetables.append(timetable)
-            body = render_timetable_ics(school, grade_filter, class_filter, timetables)
+            body = render_timetable_ics(school, grade_filter, class_filter, timetables, mode=mode)
+            etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+            headers["ETag"] = etag
+            headers["Cache-Control"] = "private, max-age=0, must-revalidate"
             headers["Content-Type"] = "text/calendar; charset=utf-8"
             headers["Content-Disposition"] = 'inline; filename="opencigan.ics"'
+            validators = (request_headers or {}).get("If-None-Match", "").strip()
+            if validators == "*" or etag in (tag.strip().removeprefix("W/") for tag in validators.split(",")):
+                return 304, headers, b""
             headers["Content-Length"] = str(len(body))
             return 200, headers, body
         elif path == "/api/v1/timetable/history":
@@ -415,7 +425,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         parts = urlsplit(self.path)
-        status_code, headers, body = dispatch_request("HEAD", parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"), request_headers={"Authorization": self.headers.get("Authorization", "")})
+        status_code, headers, body = dispatch_request("HEAD", parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"), request_headers={"Authorization": self.headers.get("Authorization", ""), "If-None-Match": self.headers.get("If-None-Match", "")})
         self.send_response(status_code)
         for key, val in headers.items():
             self.send_header(key, val)
@@ -423,7 +433,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parts = urlsplit(self.path)
-        status_code, headers, body = dispatch_request("GET", parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"), request_headers={"Authorization": self.headers.get("Authorization", "")})
+        status_code, headers, body = dispatch_request("GET", parts.path, parts.query, cache, self.client_address[0], self.headers.get("Origin"), request_headers={"Authorization": self.headers.get("Authorization", ""), "If-None-Match": self.headers.get("If-None-Match", "")})
         self.send_response(status_code)
         for key, val in headers.items():
             self.send_header(key, val)
@@ -451,6 +461,7 @@ _STATUS_PHRASES = {
     200: "200 OK",
     202: "202 Accepted",
     204: "204 No Content",
+    304: "304 Not Modified",
     400: "400 Bad Request",
     401: "401 Unauthorized",
     404: "404 Not Found",
@@ -478,7 +489,7 @@ def make_app(cache_instance=None):
             client=environ.get("REMOTE_ADDR"),
             request_origin=environ.get("HTTP_ORIGIN"),
             request_body=_read_request_body(environ.get("wsgi.input"), environ.get("CONTENT_LENGTH")) if method == "POST" and path == "/api/v1/analytics/pageview" else None,
-            request_headers={"Authorization": environ.get("HTTP_AUTHORIZATION", "")},
+            request_headers={"Authorization": environ.get("HTTP_AUTHORIZATION", ""), "If-None-Match": environ.get("HTTP_IF_NONE_MATCH", "")},
         )
 
         status_line = _STATUS_PHRASES.get(status_code, f"{status_code} Unknown")

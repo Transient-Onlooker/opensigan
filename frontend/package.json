@@ -17,6 +17,7 @@
     "vite": "^6.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "svelte-check": "^4.0.0",
     "typescript": "~5.7.2"
   }

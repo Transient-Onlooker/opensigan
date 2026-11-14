@@ -23,8 +23,8 @@
   let neisSearchState = '';
   let neisLoading = false;
   let schoolEditorOpen = true;
-  let view: 'timetable' | 'meals' = 'timetable';
-  let timetableView: 'today' | 'week' | 'grade' | 'teacher' = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 700px)').matches ? 'today' : 'week';
+  let view: 'timetable' | 'meals' | 'settings' = 'timetable';
+  let timetableView: 'today' | 'week' | 'grade' | 'teacher' = 'week';
   let teacherQuery = '';
   let displaySettings: DisplaySettings = defaultDisplaySettings();
   let lessonTimes: LessonTimes = {};
@@ -35,6 +35,7 @@
   let selectedTeacher = '';
   let allergySelection: number[] = [];
   let tableRefreshState = '';
+  let timetableCheckedAt = '';
   let exportState = '';
   let exportBusy = false;
   let lessonQuery = '';
@@ -42,6 +43,7 @@
   let shareUrl = '';
   let shareState = '';
   let subscriptionUrl = '';
+  let subscriptionMode: import('./api').SubscriptionMode = 'summary';
   let subscriptionState = '';
   let grade = 1;
   let classroom = 1;
@@ -118,7 +120,7 @@
   $: matchingLessons = lessonQuery.trim() || lessonWeekday ? findLessons(filtered, lessonQuery, lessonWeekday) : [];
   $: currentFavorite = favorites.some((item) => item.school.id === school?.id && item.grade === Number(grade) && item.classroom === Number(classroom));
   $: isDark = themeIsDark(theme, systemDark);
-  $: if (analyticsReady) trackPageView(view === 'meals' ? '/meals' : '/timetable');
+  $: if (analyticsReady && view !== 'settings') trackPageView(view === 'meals' ? '/meals' : '/timetable');
 
   function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) {
     return new Intl.DateTimeFormat('ko-KR', { ...options, timeZone: 'UTC' }).format(new Date(key + 'T00:00:00Z'));
@@ -127,9 +129,9 @@
     const [, month, day] = key.split('-').map(Number);
     return `${month}.${day}`;
   }
-  function timeText(value: string | null | undefined) {
+  function timeText(value: string | null | undefined, withSeconds = false) {
     if (!value || Number.isNaN(Date.parse(value))) return '정보 없음';
-    return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+    return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: withSeconds ? '2-digit' : undefined }).format(new Date(value));
   }
   function changeTypeText(type: string) { return type === 'added' ? '추가' : type === 'deleted' ? '삭제' : type === 'changed' ? '변경' : type; }
   function errorText(error: unknown) { return error instanceof Error ? error.message : '요청을 완료하지 못했어요.'; }
@@ -395,6 +397,7 @@
   }
   function loadTimetable(preserve = false, reuseCachedWeek = false, validateClass = false) {
     tableRequest?.abort(); if (!preserve) timetable = null; tableState = ''; tableLoading = false;
+    if (!preserve) timetableCheckedAt = '';
     if (!school) return;
     const key = `${school.id}\u0000${week}`;
     if (reuseCachedWeek) {
@@ -414,7 +417,10 @@
         if (controller.signal.aborted) return;
         timetable = data;
         if (validateClass) ensureAvailableClass();
-        if (tableRefreshState === '갱신 중') tableRefreshState = data.stale ? '저장된 시간표 표시 중' : '새로고침 완료';
+        if (tableRefreshState === '갱신 중') {
+          timetableCheckedAt = new Date().toISOString();
+          tableRefreshState = data.stale ? '서버에 연결했어요. 저장된 시간표를 표시 중이에요.' : '새로고침 완료';
+        }
         if (!data.stale) {
           timetableWeeks.delete(key);
           timetableWeeks.set(key, { data, expires: Date.now() + refreshInterval });
@@ -586,17 +592,28 @@
     }
   }
 
-  async function subscribeTimetable() {
+  function subscribeTimetable() {
     if (!school || classError || apiNotConfigured) return;
     if (subscriptionUrl) { subscriptionUrl = ''; subscriptionState = ''; return; }
     shareState = ''; subscriptionState = '';
     shareUrl = '';
-    subscriptionUrl = timetableSubscriptionUrl(school.id, Number(grade), Number(classroom));
+    subscriptionUrl = timetableSubscriptionUrl(school.id, Number(grade), Number(classroom), subscriptionMode);
+  }
+
+  function changeSubscriptionMode(event: Event) {
+    if (!school) return;
+    subscriptionMode = (event.currentTarget as HTMLSelectElement).value === 'periods' ? 'periods' : 'summary';
+    subscriptionState = '';
+    subscriptionUrl = timetableSubscriptionUrl(school.id, Number(grade), Number(classroom), subscriptionMode);
+  }
+
+  async function copySubscription() {
+    const url = subscriptionUrl;
     try {
-      await navigator.clipboard.writeText(subscriptionUrl);
-      subscriptionState = '구독 링크를 복사했어요. 캘린더 앱에 URL로 추가하세요.';
+      await navigator.clipboard.writeText(url);
+      if (url === subscriptionUrl) subscriptionState = '구독 링크를 복사했어요. 캘린더 앱에 URL로 추가하세요.';
     } catch {
-      subscriptionState = '아래 URL을 복사해 캘린더 앱에 추가하세요.';
+      if (url === subscriptionUrl) subscriptionState = '아래 URL을 복사해 캘린더 앱에 추가하세요.';
     }
   }
 
@@ -675,15 +692,38 @@
         {#if classError}<p id="class-error" class="notice" role="alert">1~99 사이의 반을 입력해 주세요. 시간표가 있는 경우 등록된 반만 선택할 수 있어요.</p>{/if}
       </section>
     {/if}
+    {#if school || favorites.length}
+      {#if school && !currentFavorite && favorites.length < 10}
+      <div class="favorite-toolbar">
+        <div class="favorite-save"><button class="secondary-button" disabled={classError} onclick={addFavorite}>현재 학급 즐겨찾기 추가</button></div>
+      </div>
+      {/if}
+      {#if favorites.length}
+        <section class="favorites-bar" aria-labelledby="favorites-title">
+          <div class="favorites-heading"><h2 id="favorites-title">즐겨찾는 학급</h2><span>선택하면 바로 전환됩니다</span></div>
+          <div class="favorite-list">
+            {#each favorites as favorite (`${favorite.school.id}-${favorite.grade}-${favorite.classroom}`)}
+              <div class="favorite-item">
+                <button class="favorite-switch" aria-pressed={school?.id === favorite.school.id && Number(grade) === favorite.grade && Number(classroom) === favorite.classroom} onclick={() => switchToFavorite(favorite)}>
+                  <strong>{favorite.school.name}</strong><span>{favorite.grade}학년 {favorite.classroom}반</span>
+                </button>
+                <button class="favorite-remove" aria-label={`${favorite.school.name} ${favorite.grade}학년 ${favorite.classroom}반 즐겨찾기 삭제`} onclick={() => removeFavorite(favorite)}>×</button>
+              </div>
+            {/each}
+          </div>
+        </section>
+      {/if}
+    {/if}
     <nav class="calendar-menu" aria-label="캘린더 메뉴">
       <span class="menu-label">캘린더</span>
       <button aria-pressed={view === 'timetable'} aria-controls="timetable-panel" onclick={() => view = 'timetable'}><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16"/><path d="M7 3v4m10-4v4M3 10h18M8 14h3m2 0h3m-8 3h3m2 0h3"/></svg> 시간표</button>
       <button aria-pressed={view === 'meals'} aria-controls="meals-panel" onclick={() => view = 'meals'}><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 3v6a3 3 0 0 0 6 0V3M7 3v18M16 21V3c3 1 4 4 4 8h-4"/></svg> 급식</button>
+      <button aria-pressed={view === 'settings'} aria-controls="settings-panel" onclick={() => view = 'settings'}>설정</button>
     </nav>
     <div id="calendar" class="calendar-content" tabindex="-1">
         <section id="timetable-panel" hidden={view !== 'timetable'} aria-labelledby="timetable-title">
            <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '선택한 주'}</p><h2 id="timetable-title">시간표</h2></div><div class="heading-actions"><span class="last-fetched">{timetable ? '마지막 수집 ' + timeText(timetable.fetchedAt) : ''}</span>{#if timetable && timetableView !== 'grade'}<button class="secondary-button" disabled={!canExport || exportBusy} onclick={exportPng}>PNG 저장</button><button class="secondary-button" disabled={!canExport || exportBusy} onclick={sharePng}>이미지 공유</button>{/if}<button class="secondary-button refresh-button" disabled={!school || tableLoading} onclick={refreshTimetable} aria-label="현재 표시 중인 주의 시간표 새로고침"><svg class:spinning={tableLoading} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.4 9a7.5 7.5 0 0 1 13.3-1.4L20 12M4 12l1.3 4.4A7.5 7.5 0 0 0 18.6 15"/></svg> {tableLoading ? '갱신 중' : '새로고침'}</button><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div></div>
-           {#if tableRefreshState}<p class="refresh-feedback" role="status">{tableRefreshState}</p>{/if}
+           {#if tableRefreshState}<p class="refresh-feedback" role="status">{tableRefreshState}{timetableCheckedAt ? ' · 마지막 확인 ' + timeText(timetableCheckedAt, true) : ''}</p>{/if}
            {#if exportState}<p class="export-feedback" role="status">{exportState}</p>{/if}
            <div class="view-switch timetable-switch" role="group" aria-label="시간표 보기"><button aria-pressed={timetableView === 'today'} onclick={() => selectTimetableView('today')}>오늘</button><button aria-pressed={timetableView === 'week'} onclick={() => selectTimetableView('week')}>이번 주</button><button aria-pressed={timetableView === 'grade'} onclick={() => selectTimetableView('grade')}>{grade}학년</button><button aria-pressed={timetableView === 'teacher'} onclick={() => selectTimetableView('teacher')}>교사</button></div>
            {#if school}<div class="quick-class" aria-label="학급 빠른 전환"><label>학년 <select bind:value={grade} onchange={saveGrade}>{#each gradeOptions as n}<option value={n}>{n}학년</option>{/each}</select></label><label>반 <select bind:value={classroom} onchange={saveClassFromSelect}>{#if !availableClasses.length}<option value={Number(classroom)}>{classroom}반</option>{/if}{#each availableClasses as n}<option value={n}>{n}반</option>{/each}</select></label>{#if !availableClasses.length}<span class="quick-class-hint">{tableLoading ? '학급 정보를 불러오는 중이에요.' : '이 학년의 학급 정보가 없어요.'}</span>{/if}</div>{/if}
@@ -750,7 +790,7 @@
           {:else if timetable && timetableView === 'week' && filtered.length}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
             <div class="table-scroll" tabindex="0" role="region" aria-label="주간 시간표, 좌우로 스크롤 가능">
-               <table class="timetable" class:no-cell-borders={!displaySettings.showCellBorders} class:density-compact={displaySettings.density === 'compact'} class:density-relaxed={displaySettings.density === 'relaxed'}><caption class="sr-only">{school.name} {grade}학년 {classroom}반 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} class:other-day={displaySettings.dimOtherDays && week === current && date !== today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}</span>{#if displaySettings.showDates}<small>{dateText(date)}{date === today ? ' · 오늘' : ''}</small>{:else}<small class="sr-only">{dateText(date)}</small>{/if}</th>{/each}</tr></thead>
+               <table class="timetable" class:no-cell-borders={!displaySettings.showCellBorders} class:density-compact={displaySettings.density === 'compact'} class:density-relaxed={displaySettings.density === 'relaxed'}><caption class="sr-only">{school.name} {grade}학년 {classroom}반 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} class:other-day={displaySettings.dimOtherDays && week === current && date !== today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}</span>{#if displaySettings.showDates}<small>{dateText(date)}</small>{:else}<small class="sr-only">{dateText(date)}</small>{/if}{#if date === today}<span class="today-label">오늘</span>{/if}</th>{/each}</tr></thead>
                   <tbody>{#each periods as period}<tr><th scope="row">{period}<span class="sr-only">교시</span></th>{#each dates as date}{@const lessons = slotLessons(filtered, date, period)}<td class:today-column={date === today} class:other-day={displaySettings.dimOtherDays && week === current && date !== today} class:changed={displaySettings.showChangeHighlights && lessons.some((lesson) => lesson.isChanged)}>{#each lessons as lesson}<div class="class-cell"><strong style={subjectStyle(lesson.subject)}>{displaySubject(lesson.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && lesson.teacher}<span>{displayTeacher(lesson.teacher, displaySettings)}</span>{/if}{#if lesson.isChanged && displaySettings.showChangeBadges}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell" aria-label="수업 없음">—</span>{/each}</td>{/each}</tr>{/each}</tbody>
               </table>
             </div>
@@ -758,6 +798,30 @@
           {:else if !tableState}<div class="state-message"><strong>등록된 시간표가 없어요.</strong><p>학교와 학년·반을 확인해 주세요.</p></div>{/if}
            {#if timetable}<div class="freshness" aria-live="polite">{#if timetable.stale}<span>저장된 시간표 · 최신 정보가 아닐 수 있어요</span>{/if}<span>원본 갱신 {timeText(timetable.sourceUpdatedAt)}</span></div>{/if}
            {#if timetable?.records.length}<details class="dataset-details"><summary>수업 데이터 규모 · 학급 {observedClassCount}개 · 교사 이름 {teacherNames.length}개</summary><p>선택한 주에 수집된 수업 기록 기준입니다. 학교 전체 학급·교사 수가 아닐 수 있고, 교사 이름 누락이나 동명이인이 있으면 실제 인원과 다를 수 있어요.</p></details>{/if}
+          {#if timetable}<section class="history-section" aria-labelledby="history-title"><div class="history-heading"><div><h3 id="history-title">시간표 변경 이력</h3><p>이번 주 학교 시간표의 수집 변경 사항</p></div><button class="secondary-button" aria-expanded={historyOpen} aria-controls="history-list" onclick={toggleHistory}>{historyOpen ? '이력 닫기' : '이력 보기'}</button></div>{#if historyOpen}<div id="history-list">{#if historyDisabled}<p class="state-inline">변경 이력 저장이 아직 활성화되지 않았어요.</p>{:else if historyLoading && !historyChanges.length}<p class="state-inline" role="status">변경 이력을 불러오는 중…</p>{:else if historyError}<div class="notice" role="alert">{historyError} <button class="text-button" onclick={() => loadHistory()}>다시 시도</button></div>{:else if historyChanges.length}<ol class="history-list">{#each historyChanges as change}<li><div><strong>{change.grade}학년 {change.class}반 · {dateText(change.date)} · {change.period}교시</strong><span>{timeText(change.observedAt)} 확인 · {changeTypeText(change.type)}</span></div><p><span>{change.before ? `${change.before.subject}${change.before.teacher ? ` · ${change.before.teacher}` : ''}` : '수업 없음'}</span><span aria-hidden="true"> → </span><span>{change.after ? `${change.after.subject}${change.after.teacher ? ` · ${change.after.teacher}` : ''}` : '수업 없음'}</span></p></li>{/each}</ol>{#if historyCursor}<button class="secondary-button history-more" disabled={historyLoading} onclick={() => loadHistory(true)}>{historyLoading ? '불러오는 중…' : '이전 변경 더 보기'}</button>{:else}<p class="state-inline">표시할 변경 이력을 모두 불러왔습니다.</p>{/if}{:else if !historyLoading}<p class="state-inline">이번 주에 기록된 변경 이력이 없습니다.</p>{/if}</div>{/if}</section>{/if}
+        </section>
+        <section id="meals-panel" hidden={view !== 'meals'} aria-labelledby="meals-title">
+          <div class="section-heading"><div><p class="eyebrow">{mealDate === today ? '오늘의 식단' : '하루 식단'}</p><h2 id="meals-title">학교 급식</h2></div><button class="secondary-button" onclick={todayMeals}>오늘로</button></div>
+          <div class="view-switch" role="group" aria-label="급식 보기"><button aria-pressed={mealView === 'day'} onclick={() => setMealView('day')}>하루 식단</button><button aria-pressed={mealView === 'week'} onclick={() => setMealView('week')}>주간 식단</button></div>
+          <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? -7 : -1)} aria-label={mealView === 'week' ? '이전 급식 주' : '이전 날짜'}>←</button><div class="calendar-date"><strong aria-live="polite">{mealView === 'week' ? dateText(mealDates[0]) + ' — ' + dateText(mealDates[6]) : dateText(mealDate, { month: 'long', day: 'numeric', weekday: 'long' })}</strong><label class="date-picker">날짜 선택 <input type="date" value={mealDate} onchange={selectMealDate} aria-invalid={!!dateError} /></label></div><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? 7 : 1)} aria-label={mealView === 'week' ? '다음 급식 주' : '다음 날짜'}>→</button></div>
+          {#if dateError}<p class="notice" role="alert">{dateError}</p>{/if}
+           <div class="meal-connection" aria-live="polite">{!neis && school ? neisSearchState : ''}</div>
+          {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>시간표 학교를 선택하면 급식도 함께 연결돼요.</p></div>
+          {:else if neisLoading}<div class="state-message" role="status">같은 학교의 급식을 연결하고 있어요.</div>
+          {:else if !neis}
+            <div class="connection-options">{#each neisResults as item (item.id)}<button class="school-option" onclick={() => chooseNeis(item)}><strong>{item.name}</strong><span>{item.address}</span></button>{/each}<button class="text-button" onclick={() => connectMeals()}>급식 연결 다시 시도</button></div>
+           {:else}
+            {#if mealState}<div class="notice" role="alert">{hasMeals ? '이전 급식 정보를 표시하고 있어요. ' : ''}{mealState} <button class="text-button" onclick={() => loadMeals(true)}>다시 시도</button></div>{/if}
+            {#if mealLoading && !hasMeals}<div class="state-message" role="status">식단을 불러오고 있어요.</div>
+            {:else if hasMeals}
+               {#if mealView === 'day'}{#if !dayMeals.some((meal) => visibleMealTypes.includes(meal.type))}<p class="no-meal">이 날짜에 등록된 식단이 없어요.</p>{:else}<div class="meal-cards">{#each visibleMealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{showAllergenNumbers ? dish : withoutAllergenNumbers(dish)}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>{/if}
+               {:else}<div class="weekly-meals">{#each mealDates as date}<article class:current-meal-day={date === today}><h3>{dateText(date, { month: 'numeric', day: 'numeric', weekday: 'long' })}{date === today ? ' · 오늘' : ''}</h3>{#if !meals.some((meal) => meal.date === date && visibleMealTypes.includes(meal.type))}<p class="no-meal">등록된 식단이 없어요.</p>{:else}<div class="weekly-meal-types">{#each visibleMealTypes as type}<section aria-label={dateText(date) + ' ' + type}><h4>{type}</h4>{#if meals.some((meal) => meal.date === date && meal.type === type)}<ul class="dishes">{#each meals.filter((meal) => meal.date === date && meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{showAllergenNumbers ? dish : withoutAllergenNumbers(dish)}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 식단이 없어요.</p>{/if}</section>{/each}</div>{/if}</article>{/each}</div>{/if}
+            {/if}
+            {#if mealsStale}<p class="notice">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
+          {/if}
+        </section>
+        <section id="settings-panel" hidden={view !== 'settings'} aria-labelledby="settings-title">
+          <h2 id="settings-title">설정</h2>
            {#if school}
              <details class="display-settings">
                <summary>시간표 표시 설정</summary>
@@ -846,52 +910,22 @@
                {#if settingsBackupState}<p class="state-inline" role="status">{settingsBackupState}</p>{/if}
              </details>
            {/if}
-          {#if timetable}<section class="history-section" aria-labelledby="history-title"><div class="history-heading"><div><h3 id="history-title">시간표 변경 이력</h3><p>이번 주 학교 시간표의 수집 변경 사항</p></div><button class="secondary-button" aria-expanded={historyOpen} aria-controls="history-list" onclick={toggleHistory}>{historyOpen ? '이력 닫기' : '이력 보기'}</button></div>{#if historyOpen}<div id="history-list">{#if historyDisabled}<p class="state-inline">변경 이력 저장이 아직 활성화되지 않았어요.</p>{:else if historyLoading && !historyChanges.length}<p class="state-inline" role="status">변경 이력을 불러오는 중…</p>{:else if historyError}<div class="notice" role="alert">{historyError} <button class="text-button" onclick={() => loadHistory()}>다시 시도</button></div>{:else if historyChanges.length}<ol class="history-list">{#each historyChanges as change}<li><div><strong>{change.grade}학년 {change.class}반 · {dateText(change.date)} · {change.period}교시</strong><span>{timeText(change.observedAt)} 확인 · {changeTypeText(change.type)}</span></div><p><span>{change.before ? `${change.before.subject}${change.before.teacher ? ` · ${change.before.teacher}` : ''}` : '수업 없음'}</span><span aria-hidden="true"> → </span><span>{change.after ? `${change.after.subject}${change.after.teacher ? ` · ${change.after.teacher}` : ''}` : '수업 없음'}</span></p></li>{/each}</ol>{#if historyCursor}<button class="secondary-button history-more" disabled={historyLoading} onclick={() => loadHistory(true)}>{historyLoading ? '불러오는 중…' : '이전 변경 더 보기'}</button>{:else}<p class="state-inline">표시할 변경 이력을 모두 불러왔습니다.</p>{/if}{:else if !historyLoading}<p class="state-inline">이번 주에 기록된 변경 이력이 없습니다.</p>{/if}</div>{/if}</section>{/if}
-        </section>
-        <section id="meals-panel" hidden={view !== 'meals'} aria-labelledby="meals-title">
-          <div class="section-heading"><div><p class="eyebrow">{mealDate === today ? '오늘의 식단' : '하루 식단'}</p><h2 id="meals-title">학교 급식</h2></div><button class="secondary-button" onclick={todayMeals}>오늘로</button></div>
-          <div class="view-switch" role="group" aria-label="급식 보기"><button aria-pressed={mealView === 'day'} onclick={() => setMealView('day')}>하루 식단</button><button aria-pressed={mealView === 'week'} onclick={() => setMealView('week')}>주간 식단</button></div>
-          <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? -7 : -1)} aria-label={mealView === 'week' ? '이전 급식 주' : '이전 날짜'}>←</button><div class="calendar-date"><strong aria-live="polite">{mealView === 'week' ? dateText(mealDates[0]) + ' — ' + dateText(mealDates[6]) : dateText(mealDate, { month: 'long', day: 'numeric', weekday: 'long' })}</strong><label class="date-picker">날짜 선택 <input type="date" value={mealDate} onchange={selectMealDate} aria-invalid={!!dateError} /></label></div><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? 7 : 1)} aria-label={mealView === 'week' ? '다음 급식 주' : '다음 날짜'}>→</button></div>
-          {#if dateError}<p class="notice" role="alert">{dateError}</p>{/if}
-           <div class="meal-connection" aria-live="polite">{!neis && school ? neisSearchState : ''}</div>
-          {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>시간표 학교를 선택하면 급식도 함께 연결돼요.</p></div>
-          {:else if neisLoading}<div class="state-message" role="status">같은 학교의 급식을 연결하고 있어요.</div>
-          {:else if !neis}
-            <div class="connection-options">{#each neisResults as item (item.id)}<button class="school-option" onclick={() => chooseNeis(item)}><strong>{item.name}</strong><span>{item.address}</span></button>{/each}<button class="text-button" onclick={() => connectMeals()}>급식 연결 다시 시도</button></div>
-           {:else}
+          {#if !school}<p class="display-settings-hint">학교를 선택하면 시간표 설정을 바꿀 수 있어요.</p>{/if}
              <details class="meal-preferences"><summary>급식 보기 설정</summary><div class="meal-preference-options" aria-label="표시할 식사"><span>표시할 식사</span>{#each mealTypes as type}<label><input type="checkbox" checked={enabledMealTypes.includes(type)} disabled={enabledMealTypes.length === 1 && enabledMealTypes.includes(type)} onchange={(event) => toggleMealType(type, event.currentTarget.checked)} />{type}</label>{/each}</div><label class="meal-number-toggle"><input type="checkbox" checked={showAllergenNumbers} onchange={(event) => setAllergenNumbersVisible(event.currentTarget.checked)} />메뉴의 알레르기 번호 표시</label><p>하루·주간 보기와 표시 설정은 이 브라우저에 저장돼요. 주의 알레르기 경고는 항상 표시됩니다.</p></details>
              <details class="allergy-settings"><summary>급식 알레르기 설정 {allergySelection.length ? `(${allergySelection.length}개 선택)` : ''}</summary><div class="allergy-grid">{#each allergens as name, index}<label><input type="checkbox" checked={allergySelection.includes(index + 1)} onchange={(event) => toggleAllergy(index + 1, event.currentTarget.checked)} /><span>{index + 1}. {name}</span></label>{/each}</div><p>선택 항목은 이 브라우저에만 저장돼요. NEIS에서 알레르기가 표시되지 않았더라도 안전하다는 뜻은 아니에요.</p></details>
-            {#if mealState}<div class="notice" role="alert">{hasMeals ? '이전 급식 정보를 표시하고 있어요. ' : ''}{mealState} <button class="text-button" onclick={() => loadMeals(true)}>다시 시도</button></div>{/if}
-            {#if mealLoading && !hasMeals}<div class="state-message" role="status">식단을 불러오고 있어요.</div>
-            {:else if hasMeals}
-               {#if mealView === 'day'}{#if !dayMeals.some((meal) => visibleMealTypes.includes(meal.type))}<p class="no-meal">이 날짜에 등록된 식단이 없어요.</p>{:else}<div class="meal-cards">{#each visibleMealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{showAllergenNumbers ? dish : withoutAllergenNumbers(dish)}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>{/if}
-               {:else}<div class="weekly-meals">{#each mealDates as date}<article class:current-meal-day={date === today}><h3>{dateText(date, { month: 'numeric', day: 'numeric', weekday: 'long' })}{date === today ? ' · 오늘' : ''}</h3>{#if !meals.some((meal) => meal.date === date && visibleMealTypes.includes(meal.type))}<p class="no-meal">등록된 식단이 없어요.</p>{:else}<div class="weekly-meal-types">{#each visibleMealTypes as type}<section aria-label={dateText(date) + ' ' + type}><h4>{type}</h4>{#if meals.some((meal) => meal.date === date && meal.type === type)}<ul class="dishes">{#each meals.filter((meal) => meal.date === date && meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{showAllergenNumbers ? dish : withoutAllergenNumbers(dish)}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 식단이 없어요.</p>{/if}</section>{/each}</div>{/if}</article>{/each}</div>{/if}
-            {/if}
-            {#if mealsStale}<p class="notice">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
-          {/if}
         </section>
     </div>
-    <section class="secondary-actions" aria-label="공유 및 즐겨찾기">
+    <section class="secondary-actions" aria-label="공유" hidden={view !== 'timetable'}>
       {#if school}
         <div class="share-tools"><button class="secondary-button" disabled={classError} onclick={shareClass} aria-expanded={!!shareUrl}>{shareUrl ? '학급 링크 닫기' : '학급 링크 복사'}</button><button class="secondary-button" disabled={classError || apiNotConfigured} onclick={subscribeTimetable} aria-expanded={!!subscriptionUrl}>{subscriptionUrl ? '구독 링크 닫기' : '캘린더 구독 링크'}</button><span role="status">{shareState || subscriptionState}</span></div>
         {#if shareUrl}<label class="shared-link">공유 링크<input type="text" readonly value={shareUrl} onfocus={(event) => event.currentTarget.select()} /></label>{/if}
-        {#if subscriptionUrl}<label class="shared-link">시간표 구독 URL (현재·다음 주, 교시별 종일 일정)<input type="text" readonly value={subscriptionUrl} onfocus={(event) => event.currentTarget.select()} /></label>{/if}
-        <div class="favorite-save"><button class="secondary-button" disabled={classError || currentFavorite || favorites.length >= 10} onclick={addFavorite}>{currentFavorite ? '즐겨찾기 저장됨' : '현재 학급 즐겨찾기 추가'}</button><span>{favorites.length}/10개 저장됨</span></div>
-      {/if}
-      {#if favorites.length}
-        <section class="favorites-bar" aria-labelledby="favorites-title">
-          <div class="favorites-heading"><h2 id="favorites-title">즐겨찾는 학급</h2><span>선택하면 바로 전환됩니다</span></div>
-          <div class="favorite-list">
-            {#each favorites as favorite (`${favorite.school.id}-${favorite.grade}-${favorite.classroom}`)}
-              <div class="favorite-item">
-                <button class="favorite-switch" aria-pressed={school?.id === favorite.school.id && Number(grade) === favorite.grade && Number(classroom) === favorite.classroom} onclick={() => switchToFavorite(favorite)}>
-                  <strong>{favorite.school.name}</strong><span>{favorite.grade}학년 {favorite.classroom}반</span>
-                </button>
-                <button class="favorite-remove" aria-label={`${favorite.school.name} ${favorite.grade}학년 ${favorite.classroom}반 즐겨찾기 삭제`} onclick={() => removeFavorite(favorite)}>×</button>
-              </div>
-            {/each}
+        {#if subscriptionUrl}
+          <div class="lesson-search-fields">
+            <label>일정 표시 방식<select value={subscriptionMode} onchange={changeSubscriptionMode}><option value="summary">하루 요약</option><option value="periods">교시별 종일 일정</option></select></label>
           </div>
-        </section>
+          <label class="shared-link">시간표 구독 URL (이번 주·다음 주)<input type="text" readonly value={subscriptionUrl} onfocus={(event) => event.currentTarget.select()} /></label>
+          <button type="button" class="secondary-button" onclick={copySubscription}>구독 링크 복사</button>
+        {/if}
       {/if}
     </section>
     <footer><div class="footer-open"><svg class="github-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.72.39-1.22.7-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.24 1.16-3.03-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.16A10.8 10.8 0 0 1 12 6.17c.96 0 1.92.13 2.82.38 2.15-1.46 3.1-1.16 3.1-1.16.61 1.55.23 2.7.11 2.98.72.79 1.16 1.8 1.16 3.03 0 4.32-2.63 5.27-5.14 5.55.4.35.76 1.03.76 2.08v3.1c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z"/></svg><div><strong>함께 만드는 오픈소스</strong><p>Opencigan은 오픈소스 프로젝트예요. GitHub에서 함께 기여해 주세요.</p><div class="footer-links"><a href="https://github.com/Transient-Onlooker/opensigan">Opencigan GitHub ↗</a><a href="https://github.com/hegelty/pycomcigan">pycomcigan ↗</a><a href="https://opencigan.mcv.kr/">Opencigan 사이트 ↗</a><a href="/api-docs.html">API 문서</a></div></div></div></footer>

@@ -7,7 +7,7 @@
 - 기본 경로: `/api/v1`
 - 메서드: `GET`, `HEAD`, `OPTIONS` (쓰기 API 없음)
 - 개발용 API 주소: `http://127.0.0.1:8000` (API를 실행하는 **같은 기기**에서만 접근)
-- HTTP 응답: JSON (UTF-8), 시간표 구독만 `text/calendar` (UTF-8). 모든 응답에 `Cache-Control: no-store`; 애플리케이션 내부 캐시는 별개
+- HTTP 응답: JSON (UTF-8), 시간표 구독만 `text/calendar` (UTF-8). 구독 피드는 비공유 캐시에서 재검증할 수 있으며, 나머지는 `Cache-Control: no-store`를 사용합니다.
 - 브라우저에서 다른 출처로 호출하려면 서버의 `ALLOWED_ORIGIN`과 배포 경로를 함께 맞춰야 합니다.
 
 API와 같은 출처의 LAN 검수 화면은 `/opensigan/api-docs.html`에 요청 Playground가 있습니다. GitHub Pages에서 이 Playground의 실시간 요청은 비활성화되어 있습니다.
@@ -76,7 +76,7 @@ curl --get 'http://127.0.0.1:8000/api/v1/timetable.ics' \
   --data-urlencode 'weeks=2'
 ```
 
-원본 시간표에는 교시별 **실제 시작·종료 시각이 없으므로** 각 수업이 종일 일정으로 표시됩니다. 캘린더 앱마다 새 구독 데이터를 가져오는 주기가 달라 즉시 반영되지 않을 수 있습니다. 외부 캘린더 앱에서 받아야 하므로 앱이 접근할 수 없는 내부망 주소로는 외부 구독이 동작하지 않습니다.
+기본값 `mode=periods`는 수업마다 종일 일정을 만들고, `mode=summary`는 하루 수업을 종일 일정 하나로 묶습니다. 원본에는 실제 교시 시각이 없습니다. 응답의 `ETag`를 다음 요청의 `If-None-Match`로 보내면 피드가 같을 때 본문 없이 `304`로 응답합니다. 앱마다 갱신 주기가 다르며, 구독 주소는 캘린더 앱에서 접근할 수 있어야 합니다.
 
 ## 캐시와 변경 이력
 
