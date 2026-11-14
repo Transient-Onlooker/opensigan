@@ -8,7 +8,7 @@ const source = await readFile(new URL('../src/allergens.ts', import.meta.url), '
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
 runInNewContext(compiled, { exports });
-const { allergenMatches } = exports;
+const { allergenMatches, withoutAllergenNumbers } = exports;
 
 test('match allergens by complete numeric token, not substring', () => {
   assert.deepEqual(Array.from(allergenMatches('복숭아(11)', [1])), []);
@@ -21,4 +21,14 @@ test('match allergens by complete numeric token, not substring', () => {
 test('ignore unrelated numbers, invalid codes and unmarked text', () => {
   assert.deepEqual(Array.from(allergenMatches('2026년 메뉴 11 / 5,000원 (20.0)', [11, 5])), []);
   assert.deepEqual(Array.from(allergenMatches('비빔밥 (5, 6) + 김치(5.6)', [6, 5, 5]), (entry) => entry.id), [5, 6]);
+});
+
+test('hide only recognized allergen-number groups without changing unrelated text', () => {
+  assert.equal(
+    withoutAllergenNumbers('milk(2) noodles (1.6.11.) (Korea) / price(2026)'),
+    'milk noodles (Korea) / price(2026)',
+  );
+  assert.equal(withoutAllergenNumbers('egg(1.11) & side (20.0)'), 'egg & side (20.0)');
+  assert.equal(withoutAllergenNumbers('plain dish (20.0)'), 'plain dish (20.0)');
+  assert.deepEqual(Array.from(allergenMatches('egg(1.11)', [11, 1]), (entry) => entry.id), [1, 11]);
 });

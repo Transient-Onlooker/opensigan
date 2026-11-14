@@ -4,7 +4,7 @@
   import { resolveMealSchool, mealSchoolCandidates } from './neis-match';
   import { trackPageView } from './analytics';
   import { shareClassUrl, readSharedClass, findLessons } from './sharing';
-  import { allergens, allergenMatches } from './allergens';
+  import { allergens, allergenMatches, withoutAllergenNumbers } from './allergens';
   import { saveTimetablePng } from './export-png';
   import { slotLessons } from './timetable-slots';
   import { defaultDisplaySettings, parseDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor, type ColorMode, type DisplaySettings } from './personalization';
@@ -45,6 +45,8 @@
   let week = current;
   let mealDate = today;
   let mealView: 'day' | 'week' = 'day';
+  let enabledMealTypes = ['조식', '중식', '석식'];
+  let showAllergenNumbers = true;
   let dateError = '';
   let theme: 'light' | 'dark' | 'system' = 'light';
   let animationsEnabled = true;
@@ -98,6 +100,7 @@
   $: dates = Array.from({ length: weekendClasses ? 7 : 5 }, (_, i) => addDays(week, i));
   $: periods = Array.from({ length: Math.max(0, ...filtered.map((r) => Number(r.period))) }, (_, i) => i + 1);
   $: dayMeals = meals.filter((meal) => meal.date === mealDate);
+  $: visibleMealTypes = mealTypes.filter((type) => enabledMealTypes.includes(type));
   $: mealDates = Array.from({ length: 7 }, (_, index) => addDays(monday(mealDate), index));
   $: matchingLessons = lessonQuery.trim() || lessonWeekday ? findLessons(filtered, lessonQuery, lessonWeekday) : [];
   $: currentFavorite = favorites.some((item) => item.school.id === school?.id && item.grade === Number(grade) && item.classroom === Number(classroom));
@@ -157,6 +160,19 @@
     allergySelection = checked ? [...new Set([...allergySelection, id])].sort((a, b) => a - b) : allergySelection.filter((value) => value !== id);
     try { localStorage.setItem('opensigan-allergies', JSON.stringify(allergySelection)); } catch { /* 설정은 현재 페이지에서 유지됩니다. */ }
   }
+
+  function saveMealPreferences() {
+    try { localStorage.setItem('opensigan-meal-preferences', JSON.stringify({ view: mealView, types: enabledMealTypes, showAllergenNumbers })); }
+    catch { /* 설정은 현재 페이지에서 유지됩니다. */ }
+  }
+  function setMealView(value: 'day' | 'week') { mealView = value; saveMealPreferences(); }
+  function toggleMealType(type: string, checked: boolean) {
+    const next = checked ? [...enabledMealTypes, type] : enabledMealTypes.filter((item) => item !== type);
+    if (!next.length) return;
+    enabledMealTypes = mealTypes.filter((item) => next.includes(item));
+    saveMealPreferences();
+  }
+  function setAllergenNumbersVisible(value: boolean) { showAllergenNumbers = value; saveMealPreferences(); }
 
   function loadFavorites() {
     try {
@@ -499,6 +515,17 @@
     try {
       const savedAllergies: unknown = JSON.parse(localStorage.getItem('opensigan-allergies') || '[]');
       if (Array.isArray(savedAllergies)) allergySelection = [...new Set(savedAllergies.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 19))].sort((a, b) => a - b);
+      const savedMeals: unknown = JSON.parse(localStorage.getItem('opensigan-meal-preferences') || 'null');
+      if (savedMeals && typeof savedMeals === 'object') {
+        const preferences = savedMeals as { view?: unknown; types?: unknown; showAllergenNumbers?: unknown };
+        if (preferences.view === 'day' || preferences.view === 'week') mealView = preferences.view;
+        if (Array.isArray(preferences.types)) {
+          const savedTypes = preferences.types.filter((type): type is string => typeof type === 'string');
+          const validTypes = mealTypes.filter((type) => savedTypes.includes(type));
+          if (validTypes.length) enabledMealTypes = validTypes;
+        }
+        if (typeof preferences.showAllergenNumbers === 'boolean') showAllergenNumbers = preferences.showAllergenNumbers;
+      }
       const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') theme = savedTheme;
       animationsEnabled = localStorage.getItem('opensigan-animations') !== 'off';
       const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
@@ -645,7 +672,7 @@
         </section>
         <section id="meals-panel" hidden={view !== 'meals'} aria-labelledby="meals-title">
           <div class="section-heading"><div><p class="eyebrow">{mealDate === today ? '오늘의 식단' : '하루 식단'}</p><h2 id="meals-title">학교 급식</h2></div><button class="secondary-button" onclick={todayMeals}>오늘로</button></div>
-          <div class="view-switch" role="group" aria-label="급식 보기"><button aria-pressed={mealView === 'day'} onclick={() => mealView = 'day'}>하루 식단</button><button aria-pressed={mealView === 'week'} onclick={() => mealView = 'week'}>주간 식단</button></div>
+          <div class="view-switch" role="group" aria-label="급식 보기"><button aria-pressed={mealView === 'day'} onclick={() => setMealView('day')}>하루 식단</button><button aria-pressed={mealView === 'week'} onclick={() => setMealView('week')}>주간 식단</button></div>
           <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? -7 : -1)} aria-label={mealView === 'week' ? '이전 급식 주' : '이전 날짜'}>←</button><div class="calendar-date"><strong aria-live="polite">{mealView === 'week' ? dateText(mealDates[0]) + ' — ' + dateText(mealDates[6]) : dateText(mealDate, { month: 'long', day: 'numeric', weekday: 'long' })}</strong><label class="date-picker">날짜 선택 <input type="date" value={mealDate} onchange={selectMealDate} aria-invalid={!!dateError} /></label></div><button class="arrow-button" onclick={() => changeMealDate(mealView === 'week' ? 7 : 1)} aria-label={mealView === 'week' ? '다음 급식 주' : '다음 날짜'}>→</button></div>
           {#if dateError}<p class="notice" role="alert">{dateError}</p>{/if}
            <div class="meal-connection" aria-live="polite">{!neis && school ? neisSearchState : ''}</div>
@@ -654,12 +681,13 @@
           {:else if !neis}
             <div class="connection-options">{#each neisResults as item (item.id)}<button class="school-option" onclick={() => chooseNeis(item)}><strong>{item.name}</strong><span>{item.address}</span></button>{/each}<button class="text-button" onclick={() => connectMeals()}>급식 연결 다시 시도</button></div>
            {:else}
+             <details class="meal-preferences"><summary>급식 보기 설정</summary><div class="meal-preference-options" aria-label="표시할 식사"><span>표시할 식사</span>{#each mealTypes as type}<label><input type="checkbox" checked={enabledMealTypes.includes(type)} disabled={enabledMealTypes.length === 1 && enabledMealTypes.includes(type)} onchange={(event) => toggleMealType(type, event.currentTarget.checked)} />{type}</label>{/each}</div><label class="meal-number-toggle"><input type="checkbox" checked={showAllergenNumbers} onchange={(event) => setAllergenNumbersVisible(event.currentTarget.checked)} />메뉴의 알레르기 번호 표시</label><p>하루·주간 보기와 표시 설정은 이 브라우저에 저장돼요. 주의 알레르기 경고는 항상 표시됩니다.</p></details>
              <details class="allergy-settings"><summary>급식 알레르기 설정 {allergySelection.length ? `(${allergySelection.length}개 선택)` : ''}</summary><div class="allergy-grid">{#each allergens as name, index}<label><input type="checkbox" checked={allergySelection.includes(index + 1)} onchange={(event) => toggleAllergy(index + 1, event.currentTarget.checked)} /><span>{index + 1}. {name}</span></label>{/each}</div><p>선택 항목은 이 브라우저에만 저장돼요. NEIS에서 알레르기가 표시되지 않았더라도 안전하다는 뜻은 아니에요.</p></details>
             {#if mealState}<div class="notice" role="alert">{hasMeals ? '이전 급식 정보를 표시하고 있어요. ' : ''}{mealState} <button class="text-button" onclick={() => loadMeals(true)}>다시 시도</button></div>{/if}
             {#if mealLoading && !hasMeals}<div class="state-message" role="status">식단을 불러오고 있어요.</div>
             {:else if hasMeals}
-               {#if mealView === 'day'}<div class="meal-cards">{#each mealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{dish}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>
-               {:else}<div class="weekly-meals">{#each mealDates as date}<article class:current-meal-day={date === today}><h3>{dateText(date, { month: 'numeric', day: 'numeric', weekday: 'long' })}{date === today ? ' · 오늘' : ''}</h3><div class="weekly-meal-types">{#each mealTypes as type}<section aria-label={dateText(date) + ' ' + type}><h4>{type}</h4>{#if meals.some((meal) => meal.date === date && meal.type === type)}<ul class="dishes">{#each meals.filter((meal) => meal.date === date && meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{dish}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 식단이 없어요.</p>{/if}</section>{/each}</div></article>{/each}</div>{/if}
+               {#if mealView === 'day'}{#if !dayMeals.some((meal) => visibleMealTypes.includes(meal.type))}<p class="no-meal">이 날짜에 등록된 식단이 없어요.</p>{:else}<div class="meal-cards">{#each visibleMealTypes as type}<article class="meal-card" aria-label={dateText(mealDate) + ' ' + type}><div class="meal-card-heading"><h3>{type}</h3><span>{type === '조식' ? '아침' : type === '중식' ? '점심' : '저녁'}</span></div>{#if dayMeals.some((meal) => meal.type === type)}<ul class="dishes">{#each dayMeals.filter((meal) => meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{showAllergenNumbers ? dish : withoutAllergenNumbers(dish)}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 {type} 식단이 없어요.</p>{/if}</article>{/each}</div>{/if}
+               {:else}<div class="weekly-meals">{#each mealDates as date}<article class:current-meal-day={date === today}><h3>{dateText(date, { month: 'numeric', day: 'numeric', weekday: 'long' })}{date === today ? ' · 오늘' : ''}</h3>{#if !meals.some((meal) => meal.date === date && visibleMealTypes.includes(meal.type))}<p class="no-meal">등록된 식단이 없어요.</p>{:else}<div class="weekly-meal-types">{#each visibleMealTypes as type}<section aria-label={dateText(date) + ' ' + type}><h4>{type}</h4>{#if meals.some((meal) => meal.date === date && meal.type === type)}<ul class="dishes">{#each meals.filter((meal) => meal.date === date && meal.type === type) as meal}{#each meal.dishes as dish}{@const matches = allergenMatches(dish, allergySelection)}<li class:allergy-warning={matches.length > 0}>{#if matches.length}<strong class="allergy-label">⚠ 주의: {matches.map(({ id, name }) => `${id}. ${name}`).join(', ')}</strong>{/if}<span>{showAllergenNumbers ? dish : withoutAllergenNumbers(dish)}</span></li>{/each}{/each}</ul>{:else}<p class="no-meal">등록된 식단이 없어요.</p>{/if}</section>{/each}</div>{/if}</article>{/each}</div>{/if}
             {/if}
             {#if mealsStale}<p class="notice">저장된 급식 정보예요. 최신 정보가 아닐 수 있습니다.</p>{/if}
           {/if}

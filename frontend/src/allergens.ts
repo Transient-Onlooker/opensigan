@@ -18,3 +18,10 @@ export function allergenMatches(dish: string, selected: readonly number[]) {
     .sort((a, b) => a - b)
     .map((id) => ({ id, name: allergens[id - 1] }));
 }
+
+export function withoutAllergenNumbers(dish: string) {
+  return dish.replace(/\s*\(([0-9.,\s]+)\)/g, (marker, contents: string) => {
+    const codes = contents.split(/[.,\s]+/).filter(Boolean);
+    return codes.length && codes.every((code) => /^(?:[1-9]|1[0-9])$/.test(code)) ? '' : marker;
+  }).trim();
+}
