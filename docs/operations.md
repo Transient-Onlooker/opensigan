@@ -56,17 +56,9 @@ Pi 작업 폴더에만 있던 `backend/shutter.py`와 회귀 검증을 저장소
 
 통계 설정과 운영 지표의 의미는 [이용 통계](analytics.md)를 참고하세요. 내부망 서버는 최신 `/assets/...` 경로와 기존 `/opensigan/assets/...` 경로를 모두 제공합니다.
 
-### 2026-11-14 이용 통계 릴리스
+### 배포 검증
 
-커밋 `555e9fcd5552dabaea89fd4a0ade5a2861f39fe1`을 `/home/admin/opensigan-releases/usage-555e9fc`에 별도 배치했습니다. 전송 패키지 SHA-256은 `e4737fc1e842039d020b44c26cfe5ce050f02c1d8d8c53ab1dd6a86a95a9dc76`입니다. 기존 `~/opensigan`의 미커밋 코드와 이전 P0 릴리스는 유지했습니다. Pi Python 3.14에서 85개 테스트가 통과한 뒤 두 서비스의 작업 경로를 전환했습니다.
-
-- API·검수 서비스 각각의 `~/.config/systemd/user/<서비스>.service.d/zz-opencigan-release.conf`가 새 작업 경로와 `~/.config/opensigan/analytics.env`를 지정합니다. 기존 서비스 파일과 P0 drop-in은 보존했습니다.
-- 통계 키와 별도 관리자 토큰은 Pi에서 생성하고 `analytics.env`에 권한 600으로 보관했습니다. DB는 `~/.local/share/opensigan/analytics.sqlite3`이며 상위 디렉터리는 권한 700입니다. 키를 Git이나 배포 번들로 전송하지 않았습니다.
-- 통계 화면은 `http://172.30.1.95:8080/analytics.html`에서 확인했습니다(HTTP 200). 관리자 API는 인증 없이 401, 서버에서 토큰을 읽어 인증하면 200입니다. 관리자는 SSH 세션에서 환경 파일의 `OPENCIGAN_ANALYTICS_ADMIN_TOKEN`을 확인할 수 있습니다. 토큰은 공유하지 마세요.
-- 원복 시 두 서비스의 위 `zz-opencigan-release.conf`를 `.conf.disabled`로 이름 변경하고 `systemctl --user daemon-reload` 후 두 서비스를 재시작합니다. 그러면 API는 기존 작업 폴더, 검수는 이전 P0 drop-in 경로를 다시 사용합니다. 통계 환경 파일과 DB는 보존할 수 있습니다.
-- 기존 Funnel 설정은 변경하지 않았습니다. 확인 시 이미 API 경로가 공개된 상태였습니다.
-
-실데이터 시간표 1회를 수집하고 동일 캐시를 2회 재조회한 Pi loopback HTTP 측정은 각각 205.03ms(MISS), 5.32ms(HIT), 4.81ms(HIT)였습니다. 각 응답은 501개 레코드·HTTP 200이었고 API 통계는 3건, 누락 0건으로 반영됐습니다. 화면 표시·LAN·인터넷 왕복 지연을 측정한 값은 아니며, 방문자 집계를 위한 가짜 페이지 이벤트는 보내지 않았습니다.
+이용 통계와 후속 UI를 별도 릴리스로 배치하고 기존 작업 폴더를 보존했습니다. UI 변경 시 검수 서비스만 전환해 API 캐시를 유지했습니다. 서버에서 Python 회귀 검증과 관리자 인증을 확인했고, GitHub 검사 및 Pages 배포도 성공했습니다. 공개 사이트의 새 UI 자산과 외부 관리자 인증·CORS 응답을 HTTP로 검증했습니다. GUI 브라우저·모바일 실기기 시각 검증은 수행하지 않았습니다. 상세 서버 위치·백업 경로·운영 메타데이터는 공개 문서에 포함하지 않습니다.
 
 ## 공개 전 체크리스트
 
