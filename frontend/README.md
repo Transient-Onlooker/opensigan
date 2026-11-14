@@ -1,38 +1,31 @@
 # Opencigan 프런트엔드
 
-Svelte/Vite 기반 시간표 UI입니다. 백엔드·배포 전체 설명은 [루트 README](../README.md), 개발 절차는 [개발 가이드](../docs/development.md)를 참고하세요.
+Svelte와 Vite로 시간표, 급식, 설정 화면을 제공합니다. 처음 기여한다면 [개발 가이드](../docs/development.md)와 [기여 가이드](../CONTRIBUTING.md)를 참고하세요.
 
-## 개발
+## 로컬 실행
+
+`frontend/`에서 실행합니다.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Vite가 표시하는 `/opensigan/` 주소로 접속합니다. 개발 중 `/api` 요청은 `http://127.0.0.1:8000`으로 프록시되므로 Python 백엔드를 별도로 시작해야 합니다.
+터미널에 표시된 주소(기본 `http://localhost:5173/`)를 엽니다. 개발 서버의 `/api` 요청은 `127.0.0.1:8000`으로 전달되므로 실제 데이터를 조회하려면 Python 백엔드도 실행해야 합니다.
+
+## 검사
 
 ```bash
 npm run check
 npm test
-npm run build
+npx playwright install chromium webkit
+npx playwright test
 ```
 
-`npm run dev`/`npm run build`는 먼저 `../docs/openapi.yaml`을 `public/openapi.yaml`에 복사합니다. 빌드 산출물은 `dist/`에 생성됩니다.
+Playwright는 배포용 화면을 빌드한 뒤 합성 데이터로 학급 전환, 저장, 공유 등 주요 흐름을 검사합니다. 실제 학교 데이터나 NEIS 키가 필요하지 않습니다.
 
-## 화면 기능
+## 빌드와 배포
 
-- 학교/학년/반 선택과 브라우저 로컬 저장
-- **오늘**, **주간 반**, **학년 비교**, **교사 찾기**의 네 가지 시간표 보기
-- 원본 변경 표시, 관측 이력 UI(서버 설정 시), 마지막 원본 갱신·수집 시각
-- NEIS 급식 자동 매칭/동명이교 직접 확인, 날짜 선택과 같은 주의 결과 재사용
-- 모바일 반응형 레이아웃, 테마 전환, 캐시된 응답 유지 및 갱신 실패 안내
+`npm run build`의 결과는 `dist/`에 생성됩니다. 개발 서버와 빌드 모두 [OpenAPI 명세](../docs/openapi.yaml)를 정적 문서에 복사합니다. API 문서 경로는 `/api-docs.html`, 명세 경로는 `/openapi.yaml`입니다. 문서의 요청 실습은 같은 출처에 API가 있는 환경에서 사용할 수 있습니다.
 
-PWA, 이미지/PDF 내보내기, 공유 링크, 외부 임베드는 **아직 로드맵 항목**입니다. [로드맵](../docs/roadmap.md).
-
-## 배포에서 주의할 점
-
-GitHub Pages 기본 경로는 `/opensigan/`입니다. GitHub Actions는 저장소 변수 `API_BASE_URL`을 `VITE_API_BASE_URL`로 전달합니다. 이 값을 빼고 `github.io`에 배포하면 데이터 API가 없다는 안내가 뜹니다. 별도 출처의 API를 쓰려면 백엔드 CORS도 일치해야 합니다.
-
-API 문서 페이지는 `/opensigan/api-docs.html`, 정적 명세는 `/opensigan/openapi.yaml`입니다. 문서 내 Playground는 **같은 출처의 API가 있을 때만** 사용하며 `github.io`에서는 라이브 요청을 차단합니다.
-
-디자인은 기존 Svelte 코드와 흑백 UI를 유지합니다. 디자인 키트의 가상 데이터나 캐릭터를 실제 서비스 콘텐츠로 사용하지 않습니다.
+GitHub Pages의 정적 화면은 저장소 변수 `API_BASE_URL`을 빌드 시 `VITE_API_BASE_URL`로 받습니다. 프런트엔드와 API의 출처가 다르면 [백엔드에서 프런트엔드 출처를 허용](../docs/operations.md)해야 합니다.

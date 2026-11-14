@@ -1,16 +1,16 @@
 # Opencigan API 가이드
 
-> **상태:** 로컬·내부망 검수용 Python API 계약을 설명합니다. 공개 개발자용 API 서비스의 가용성이나 제3자 재제공 허용을 의미하지 않습니다. 형식의 기준은 [OpenAPI 3.1](openapi.yaml)입니다.
+이 문서는 직접 실행한 Python API를 호출하는 방법을 설명합니다. 요청과 응답 형식은 [OpenAPI 3.1](openapi.yaml)을 기준으로 합니다. 공개 사이트의 주소가 외부 개발자용 API 주소나 원본 데이터 재배포 권한을 보장하지는 않습니다.
 
 ## 호출 기본
 
 - 기본 경로: `/api/v1`
-- 메서드: `GET`, `HEAD`, `OPTIONS` (쓰기 API 없음)
+- 이 문서에 나오는 조회 API는 `GET`, `HEAD`, `OPTIONS`를 지원합니다.
 - 개발용 API 주소: `http://127.0.0.1:8000` (API를 실행하는 **같은 기기**에서만 접근)
 - HTTP 응답: JSON (UTF-8), 시간표 구독만 `text/calendar` (UTF-8). 구독 피드는 비공유 캐시에서 재검증할 수 있으며, 나머지는 `Cache-Control: no-store`를 사용합니다.
 - 브라우저에서 다른 출처로 호출하려면 서버의 `ALLOWED_ORIGIN`과 배포 경로를 함께 맞춰야 합니다.
 
-API와 같은 출처의 LAN 검수 화면은 `/opensigan/api-docs.html`에 요청 Playground가 있습니다. GitHub Pages에서 이 Playground의 실시간 요청은 비활성화되어 있습니다.
+같은 출처에 화면과 API를 함께 제공하는 로컬 환경에서는 `/api-docs.html`에서 요청을 시험해 볼 수 있습니다.
 
 ## 엔드포인트
 

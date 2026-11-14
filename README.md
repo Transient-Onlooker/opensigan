@@ -1,34 +1,32 @@
 # Opencigan
 
-[![CI](https://github.com/Transient-Onlooker/opensigan/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Transient-Onlooker/opensigan/actions/workflows/ci.yml)
-[![Parser health](https://github.com/Transient-Onlooker/opensigan/actions/workflows/parser-health.yml/badge.svg?branch=main)](https://github.com/Transient-Onlooker/opensigan/actions/workflows/parser-health.yml)
+Opencigan은 학교 시간표와 급식을 한곳에서 보는 웹앱입니다. 시간표는 컴시간, 급식은 NEIS 데이터를 사용합니다. 로그인 없이 학교와 학급을 선택할 수 있습니다.
 
-**학교 시간표와 급식을 한곳에서 조회하는 웹서비스**입니다. 컴시간 시간표와 NEIS 급식을 사용합니다.
+[Opencigan 열기](https://opencigan.mcv.kr/) · [문제 제보](https://github.com/Transient-Onlooker/opensigan/issues) · [기여하기](CONTRIBUTING.md)
 
-[웹사이트](https://opencigan.mcv.kr) · [API 명세](docs/openapi.yaml) · [기능 로드맵](docs/roadmap.md)
+## 사용 방법
 
-> **현재 상태 (2026-11-14):** 주 주소는 [opencigan.mcv.kr](https://opencigan.mcv.kr)입니다. 웹사이트는 Raspberry Pi 백엔드(Tailscale Funnel 경유)에 연결되어 시간표/급식 조회가 동작합니다. 외부 개발자용 API의 공개 운영은 별도 검증·승인이 필요합니다.
+1. **학교 찾기**에서 학교 이름을 검색하고 학년과 반을 선택합니다. 자주 보는 학급은 즐겨찾기에 추가하면 화면 상단에서 바로 전환할 수 있습니다.
+2. **시간표**에서 이번 주, 오늘, 학년 비교, 교사별 시간표를 확인합니다. **급식** 탭에서는 같은 학교의 하루 또는 주간 식단을 볼 수 있습니다. 이름이 같은 학교가 있으면 급식 탭에서 주소를 확인해 선택합니다.
+3. **설정**에서 시간표 표시, 테마, 급식과 알레르기 항목을 바꿀 수 있습니다. 알레르기 설정은 브라우저에만 저장되며, NEIS에 알레르기가 표시되지 않았다고 해서 안전하다는 뜻은 아닙니다.
 
-## 구현된 기능
+시간표는 PNG나 PDF로 저장할 수 있습니다. 화면 아래의 **학급 링크 복사**로 학급을 공유하거나, **캘린더 구독 링크**에서 하루 요약과 교시별 종일 일정 중 하나를 선택할 수 있습니다. 구독 주소는 캘린더 앱이 접근할 수 있어야 하며, 갱신 주기는 앱마다 다릅니다.
 
-- 학교 검색, 학년·반 선택, 선택 정보 브라우저 저장
-- 오늘의 시간표, 우리 반 주간 시간표, 학년 전체 반별 비교, 교사별 시간표 검색
-- 교시별 변경 표시, 원본 갱신/수집 시각, 실패 시 가능한 범위에서 이전 캐시 표시
-- NEIS 학교 매칭 및 조식·중식·석식 조회, 날짜 이동
-- 반응형 모바일 화면, 다크 모드
-- 시간표 변경 이력 확인
-- 읽기 전용 `/api/v1` JSON API 및 OpenAPI 3.1 명세
-- 선택적 이용 통계와 인증을 요구하는 관리자 대시보드
+새로고침 후 **마지막 확인**은 서버 응답을 받은 시각, **마지막 수집**은 서버가 원본을 가져온 시각입니다. 서버가 캐시를 보냈다면 수집 시각은 그대로일 수 있습니다. 오프라인 조회는 연결이 끊기기 전에 불러온 마지막 시간표를 같은 학교·주차에서 보여 줍니다.
 
-## 문서
+## 개발과 기여
+
+문서 수정, 모바일에서 발견한 문제 제보, 합성 데이터로 재현할 수 있는 테스트도 도움이 됩니다. [기여 가이드](CONTRIBUTING.md)에서 제보와 PR 작성 방법을 확인하고, [개발 가이드](docs/development.md)에서 로컬 실행을 시작하세요.
 
 | 문서 | 내용 |
 | --- | --- |
-| [API 사용 가이드](docs/api-guide.md) | 엔드포인트, 응답 예시, 오류·캐시 의미 |
-| [OpenAPI 3.1](docs/openapi.yaml) | 기계 판독 가능한 계약 |
-| [개발 로드맵](docs/roadmap.md) | P0~P4 구현 현황 및 후속 작업 |
-| [이용 통계](docs/analytics.md) | 설정, 집계 기준과 한계 |
+| [로드맵](docs/roadmap.md) · [알려진 문제](docs/known-issues.md) | 구현 현황과 확인이 필요한 항목 |
+| [API 사용 가이드](docs/api-guide.md) · [OpenAPI](docs/openapi.yaml) | 요청 예시, 응답 형식, 캐시와 오류 |
+| [구조와 데이터 흐름](docs/architecture.md) · [운영 가이드](docs/operations.md) | 서비스 구성과 배포 점검 |
+| [이용 통계](docs/analytics.md) | 집계 항목과 데이터 보관 기준 |
+
+시간표 연동에는 [pycomcigan](https://github.com/hegelty/pycomcigan)을 사용합니다.
 
 ## 라이선스
 
-아직 별도의 `LICENSE` 파일이 없습니다. 공개 저장소라는 사실만으로 외부 사용·재배포 권한이 부여되지는 않습니다.
+현재 저장소에 코드 라이선스 파일이 없습니다. 공개 저장소라는 사실만으로 코드의 재사용·재배포 권한이 부여되지는 않습니다. 컴시간과 NEIS 데이터에는 각 출처의 이용 조건이 적용됩니다.

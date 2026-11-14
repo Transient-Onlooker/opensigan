@@ -1,6 +1,6 @@
 # 구조와 데이터 흐름
 
-2026-11-14 저장소의 구현을 기준으로 합니다. 이 문서는 **현재 사용되는 Python/RPi 경로**와 **과거 Cloudflare Worker 실험**을 구분합니다.
+현재 구성을 기준으로 프런트엔드와 Python API가 시간표와 급식을 가져오는 경로를 설명합니다.
 
 ## 구성
 
@@ -22,7 +22,7 @@ flowchart LR
 | 급식 | `backend/neis.py` | NEIS 학교 검색과 식단 가져오기 |
 | 이력 | `backend/history.py` | 관측된 시간표 스냅샷 비교/SQLite/페이지네이션 |
 | RPi API | `deploy/opensigan.service` | 로컬호스트 `127.0.0.1:8000` |
-| LAN 검수 | `deploy/lan_preview.py`, `deploy/opensigan-preview.service` | 정적 프런트엔드 + 내부망 API 프록시 역할 |
+| LAN 검수 | `deploy/lan_preview.py`, `deploy/opensigan-preview.service` | 같은 주소에서 정적 화면과 Python API를 제공 |
 | 과거 실험 | `workers-api/` | 독립적인 Cloudflare Workers/D1 구현 및 실험 기록 |
 
 ## 시간표 흐름
@@ -47,6 +47,6 @@ flowchart LR
 
 ## 배포 경계
 
-정적 사이트가 배포됐다는 사실은 API가 외부에서 열렸다는 뜻이 아닙니다. RPi 서비스는 로컬호스트에서 실행하고, LAN 검수는 별도의 내부망 경로를 사용합니다. **공개 터널은 별도 승인·검증 없이 열지 않습니다.** 프로세스별 캐시/요청 제한은 분산 환경에서 전역 제한이 아닙니다.
+GitHub Pages는 정적 파일을 제공하며 데이터 요청은 별도의 API로 전달됩니다. Raspberry Pi API는 기본적으로 로컬호스트에 바인딩되며, 내부망 검수는 별도 서비스를 사용합니다. 캐시와 요청 제한은 프로세스마다 적용됩니다.
 
 [운영 절차](operations.md) · [API 가이드](api-guide.md) · [성능 계측](latency-2026-11-13.md)

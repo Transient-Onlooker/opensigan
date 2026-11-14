@@ -1,6 +1,6 @@
 # 개발 가이드
 
-> 기준: 2026-11-14 `main`. 코드를 실행하거나 원본 서비스에 요청하기 전에 요청 범위를 확인하세요.
+로컬에서 시간표와 급식 화면을 실행하고 변경 사항을 검사하는 방법입니다.
 
 ## 환경
 
@@ -27,7 +27,7 @@ npm ci
 npm run dev
 ```
 
-`http://localhost:5173/opensigan/`은 일반적인 Vite 기본 주소이며, 실제 출력된 주소를 우선합니다. 프런트엔드 개발 프록시는 `/api`를 `127.0.0.1:8000`으로 전달합니다.
+터미널에 표시된 주소(기본 `http://localhost:5173/`)를 엽니다. 프런트엔드 개발 서버는 `/api` 요청을 `127.0.0.1:8000`으로 전달합니다.
 
 ### Linux/macOS
 
@@ -85,12 +85,14 @@ cd frontend
 npm ci
 npm run check
 npm test
+npx playwright install chromium webkit
+npx playwright test
 npm run build
 cd ..
 .\.venv\Scripts\python -m unittest discover -s tests/integration -v
 ```
 
-Linux/macOS라면 Python 실행 경로를 `.venv/bin/python`으로 바꾸세요. CI는 `.github/workflows/ci.yml`에 기록된 순서로 이 검사를 수행합니다. 통과 사실은 GitHub Actions 결과로 확인하세요.
+Linux/macOS라면 Python 실행 경로를 `.venv/bin/python`으로 바꾸세요. Playwright는 테스트용 서버를 직접 띄우고 합성 데이터로 Chromium과 WebKit에서 주요 화면 동작을 검사합니다. 설치에 필요한 시스템 패키지는 [CI 설정](../.github/workflows/ci.yml)을 참고하세요.
 
 **실서비스를 호출하는 테스트는 별도:** `python -m tests.neis_sample_probe`와 `python -m tests.neis_local_probe`는 외부 요청을 보냅니다. `python -m backend.parser_health_probe`도 실제 컴시간 학교 검색을 수행합니다. 일상적인 변경·리뷰에서는 실행하지 않고 명시적인 확인이 필요할 때만 한 번 실행하세요.
 
@@ -103,12 +105,4 @@ Linux/macOS라면 Python 실행 경로를 `.venv/bin/python`으로 바꾸세요.
 - 오류 코드는 `error`, `code` 필드를 사용하며, 클라이언트에 내부 네트워크 정보·비밀키·예외 스택을 전달하지 않습니다.
 - 네트워크·캐시 실패 시 빈 데이터로 덮어쓰지 않도록 기존 사용자 경험을 유지합니다.
 
-## PR/리뷰 체크리스트
-
-1. 기존 API 계약과 모바일·데스크톱 화면에 회귀가 없는지 확인한다.
-2. 수정된 Python/TS 경로에 합성 데이터 기반 테스트를 추가한다.
-3. 변경한 공개 필드·사용법·제약을 문서에 반영한다.
-4. 실행하지 않은 검사는 '미실행'이라고 기록하고, 실측 조건과 날짜를 남긴다.
-5. RPi의 SSH/Tailscale/방화벽·공개 터널·실제 데이터 저장 설정을 개발 변경과 묶어 임의로 적용하지 않는다.
-
-이슈·기여 방식은 [CONTRIBUTING.md](../CONTRIBUTING.md)를 참조하세요.
+이슈 작성과 PR 제출 방법은 [기여 가이드](../CONTRIBUTING.md)를 참고하세요. 배포 절차는 [운영 가이드](operations.md)에 있습니다.
