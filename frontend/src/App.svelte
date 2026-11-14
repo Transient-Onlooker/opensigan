@@ -4,9 +4,11 @@
   import { resolveMealSchool, mealSchoolCandidates } from './neis-match';
   import { isAnalyticsEnabled, setAnalyticsEnabled, trackPageView } from './analytics';
   import { shareClassUrl, readSharedClass, findLessons } from './sharing';
-  import { apiNotConfigured, getMeals, getTimetable, getTimetableHistory, searchSchools, searchNeisSchools, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse, type TimetableChange } from './api';
+  import { apiNotConfigured, getMeals, getTimetable, getTimetableHistory, searchSchools, searchNeisSchools, timetableSubscriptionUrl, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse, type TimetableChange } from './api';
 
+  type Favorite = { school: School; grade: number; classroom: number };
   let school: School | null = null;
+  let favorites: Favorite[] = [];
   let neis: NeisSchool | null = null;
   let schoolQuery = '';
   let schoolResults: School[] = [];
@@ -22,6 +24,8 @@
   let lessonWeekday = '';
   let shareUrl = '';
   let shareState = '';
+  let subscriptionUrl = '';
+  let subscriptionState = '';
   let grade = 1;
   let classroom = 1;
   let classError = false;
@@ -47,6 +51,7 @@
   let mealRequestKey = '';
   const mealTypes = ['조식', '중식', '석식'];
   const refreshInterval = 30 * 60 * 1000;
+  const timetableWeeks = new Map<string, { data: TimetableResponse; expires: number }>();
   let timetableRefreshAt = 0;
   let mealsRefreshAt = 0;
   let schoolTimer: ReturnType<typeof setTimeout>;
@@ -74,6 +79,7 @@
   $: dayMeals = meals.filter((meal) => meal.date === mealDate);
   $: mealDates = Array.from({ length: 7 }, (_, index) => addDays(monday(mealDate), index));
   $: matchingLessons = lessonQuery.trim() || lessonWeekday ? findLessons(filtered, lessonQuery, lessonWeekday) : [];
+  $: currentFavorite = favorites.some((item) => item.school.id === school?.id && item.grade === Number(grade) && item.classroom === Number(classroom));
   $: if (analyticsReady) trackPageView(view === 'meals' ? '/meals' : '/timetable');
 
   function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) {
@@ -87,6 +93,52 @@
   function errorText(error: unknown) { return error instanceof Error ? error.message : '요청을 완료하지 못했어요.'; }
   function record(date: string, period: number): TimetableRecord | undefined { return filtered.find((r) => r.date === date && Number(r.period) === period); }
   function neisKey(id: string) { return 'opensigan-neis:' + id; }
+
+  function loadFavorites() {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem('opensigan-favorites') || '[]');
+      if (!Array.isArray(saved)) return;
+      const valid: Favorite[] = [];
+      for (const entry of saved) {
+        if (!entry || typeof entry !== 'object') continue;
+        const item = entry as Partial<Favorite>;
+        const value = item.school;
+        if (!value || typeof value.id !== 'string' || !/^[0-9]+:[^:]{1,50}$/.test(value.id) || value.id.length > 100 ||
+            typeof value.name !== 'string' || !value.name.trim() || value.name.length > 50 ||
+            typeof value.region !== 'string' || value.region.length > 100 ||
+            !Number.isInteger(item.grade) || Number(item.grade) < 1 || Number(item.grade) > 6 ||
+            !Number.isInteger(item.classroom) || Number(item.classroom) < 1 || Number(item.classroom) > 99) continue;
+        if (!valid.some((previous) => previous.school.id === value.id && previous.grade === item.grade && previous.classroom === item.classroom)) {
+          valid.push({ school: { id: value.id, name: value.name, region: value.region }, grade: Number(item.grade), classroom: Number(item.classroom) });
+        }
+        if (valid.length === 10) break;
+      }
+      favorites = valid;
+    } catch { favorites = []; }
+  }
+  function saveFavorites() {
+    try { localStorage.setItem('opensigan-favorites', JSON.stringify(favorites)); } catch { /* 브라우저 저장이 차단되어도 현재 화면은 동작합니다. */ }
+  }
+  function addFavorite() {
+    if (!school || classError || favorites.length >= 10 ||
+        favorites.some((item) => item.school.id === school?.id && item.grade === Number(grade) && item.classroom === Number(classroom))) return;
+    favorites = [...favorites, { school: { ...school }, grade: Number(grade), classroom: Number(classroom) }];
+    saveFavorites();
+  }
+  function removeFavorite(favorite: Favorite) {
+    favorites = favorites.filter((item) => !(item.school.id === favorite.school.id && item.grade === favorite.grade && item.classroom === favorite.classroom));
+    saveFavorites();
+  }
+  function switchToFavorite(favorite: Favorite) {
+    grade = favorite.grade; classroom = favorite.classroom; classError = false;
+    shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
+    if (school?.id !== favorite.school.id) chooseSchool(favorite.school);
+    else schoolEditorOpen = false;
+    try {
+      localStorage.setItem('opensigan-grade', String(grade));
+      localStorage.setItem('opensigan-class', String(classroom));
+    } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
+  }
 
   function findSchool() {
     clearTimeout(schoolTimer); schoolRequest?.abort(); schoolResults = []; schoolSearchState = '';
@@ -104,14 +156,14 @@
     }, 250);
   }
   function chooseSchool(value: School) {
-    shareUrl = ''; shareState = '';
+    shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
     schoolRequest?.abort(); clearTimeout(schoolTimer); neisRequest?.abort(); mealRequest?.abort(); historyRequest?.abort();
     school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = ''; schoolEditorOpen = false;
     historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; historyRequestKey = '';
     neis = null; neisResults = []; neisSearchState = ''; neisLoading = false;
     meals = []; hasMeals = false; mealsStale = false; mealState = ''; mealLoading = false; mealDataKey = ''; mealRequestKey = '';
     try { localStorage.setItem('opensigan-school', JSON.stringify(value)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
-    loadTimetable();
+    loadTimetable(false, true);
     try {
       const saved = localStorage.getItem(neisKey(value.id));
       if (saved) {
@@ -147,13 +199,31 @@
     if (school) { try { localStorage.setItem(neisKey(school.id), JSON.stringify(value)); } catch { /* 현재 연결은 저장 없이 유지합니다. */ } }
     loadMeals();
   }
-  function loadTimetable(preserve = false) {
+  function loadTimetable(preserve = false, reuseCachedWeek = false) {
     tableRequest?.abort(); if (!preserve) timetable = null; tableState = ''; tableLoading = false;
     if (!school) return;
+    const key = `${school.id}\u0000${week}`;
+    if (reuseCachedWeek) {
+      const cached = timetableWeeks.get(key);
+      if (cached && cached.expires > Date.now()) {
+        timetable = cached.data;
+        timetableRefreshAt = cached.expires;
+        return;
+      }
+      timetableWeeks.delete(key);
+    }
     timetableRefreshAt = Date.now() + refreshInterval;
     const controller = new AbortController(); tableRequest = controller; tableLoading = true;
     void getTimetable(school.id, week, controller.signal)
-      .then((data) => { if (!controller.signal.aborted) timetable = data; })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        timetable = data;
+        if (!data.stale) {
+          timetableWeeks.delete(key);
+          timetableWeeks.set(key, { data, expires: Date.now() + refreshInterval });
+          if (timetableWeeks.size > 4) timetableWeeks.delete(timetableWeeks.keys().next().value!);
+        }
+      })
       .catch((error) => { if (!controller.signal.aborted) tableState = errorText(error); })
       .finally(() => { if (!controller.signal.aborted) tableLoading = false; });
   }
@@ -198,7 +268,7 @@
       .catch((error) => { if (!controller.signal.aborted) mealState = errorText(error); })
       .finally(() => { if (!controller.signal.aborted) mealLoading = false; });
   }
-  function refreshCalendar() {
+  function refreshCalendar(refreshData = true) {
     const previousToday = today;
     today = currentKoreaDate(new Date()); current = monday(today);
     const validWeek = clampWeek(week, current);
@@ -207,22 +277,24 @@
       week = validWeek;
       selectedDay = selectedDay < week ? week : selectedDay > addDays(week, 6) ? addDays(week, 6) : selectedDay;
       historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false;
-      loadTimetable();
-      if (historyOpen) void loadHistory();
+      if (refreshData) {
+        loadTimetable();
+        if (historyOpen) void loadHistory();
+      }
     }
-    if (mealDate === previousToday && today !== previousToday) { mealDate = today; loadMeals(); }
-    if (document.visibilityState === 'visible') {
+    if (mealDate === previousToday && today !== previousToday) { mealDate = today; if (refreshData) loadMeals(); }
+    if (refreshData && document.visibilityState === 'visible') {
       const now = Date.now();
       if (school && !tableLoading && now >= timetableRefreshAt) loadTimetable(true);
       if (school && neis && !mealLoading && now >= mealsRefreshAt) loadMeals(true);
     }
   }
   function changeWeek(delta: number) {
-    refreshCalendar(); const next = addDays(week, delta * 7);
+    refreshCalendar(false); const next = addDays(week, delta * 7);
     if (next < current || next > addDays(current, 7)) return;
-    week = next; selectedDay = week === current ? today : week; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; loadTimetable();
+    week = next; selectedDay = week === current ? today : week; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; loadTimetable(false, true);
   }
-  function currentWeek() { refreshCalendar(); const preserve = week === current; const reopenHistory = historyOpen; week = current; selectedDay = today; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; loadTimetable(preserve); if (reopenHistory) void loadHistory(); }
+  function currentWeek() { refreshCalendar(false); const preserve = week === current; const reopenHistory = historyOpen; week = current; selectedDay = today; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; loadTimetable(preserve); if (reopenHistory) void loadHistory(); }
   function changeMealDate(delta: number) { mealDate = addDays(mealDate, delta); dateError = ''; loadMeals(); }
   function selectTimetableDate(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -241,7 +313,7 @@
     try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
   }
   function updateClass(event: Event) {
-    shareUrl = ''; shareState = '';
+    shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
     classError = !Number.isInteger(value) || value < 1 || value > 99;
     if (!classError) classroom = value;
@@ -250,7 +322,7 @@
     updateClass(event);
     if (!classError) { try { localStorage.setItem('opensigan-class', String(classroom)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   }
-  function saveGrade() { shareUrl = ''; shareState = ''; try { localStorage.setItem('opensigan-grade', String(grade)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
+  function saveGrade() { shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = ''; try { localStorage.setItem('opensigan-grade', String(grade)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ } }
   function toggleAnalytics() {
     analyticsEnabled = !analyticsEnabled;
     setAnalyticsEnabled(analyticsEnabled);
@@ -259,12 +331,25 @@
 
   async function shareClass() {
     if (!school || classError) return;
+    shareState = ''; subscriptionState = '';
     shareUrl = shareClassUrl(window.location.href, school, Number(grade), Number(classroom));
     try {
       await navigator.clipboard.writeText(shareUrl);
       shareState = '학급 링크를 복사했어요.';
     } catch {
       shareState = '아래 링크를 선택해 복사해 주세요.';
+    }
+  }
+
+  async function subscribeTimetable() {
+    if (!school || classError || apiNotConfigured) return;
+    shareState = ''; subscriptionState = '';
+    subscriptionUrl = timetableSubscriptionUrl(school.id, Number(grade), Number(classroom));
+    try {
+      await navigator.clipboard.writeText(subscriptionUrl);
+      subscriptionState = '구독 링크를 복사했어요. 캘린더 앱에 URL로 추가하세요.';
+    } catch {
+      subscriptionState = '아래 URL을 복사해 캘린더 앱에 추가하세요.';
     }
   }
 
@@ -275,8 +360,10 @@
     refreshCalendar();
     const calendarTimer = setInterval(refreshCalendar, 60_000);
     const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshCalendar(); };
+    const onFocus = () => refreshCalendar();
     document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('focus', refreshCalendar);
+    window.addEventListener('focus', onFocus);
+    loadFavorites();
     try {
       const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
       const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
@@ -285,7 +372,7 @@
     } catch { /* 저장소를 사용할 수 없으면 기본 설정으로 시작합니다. */ }
     if (shared) { grade = shared.grade; classroom = shared.classroom; chooseSchool(shared.school); }
     return () => {
-      clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', refreshCalendar); historyRequest?.abort();
+      clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', onFocus); historyRequest?.abort();
       clearTimeout(schoolTimer); schoolRequest?.abort(); neisRequest?.abort(); tableRequest?.abort(); mealRequest?.abort();
     };
   });
@@ -304,10 +391,29 @@
       {#if school}<button class="secondary-button" onclick={() => schoolEditorOpen = !schoolEditorOpen} aria-expanded={schoolEditorOpen} aria-controls="school-settings">학교·학급 변경</button>{/if}
     </section>
     {#if school}
-      <div class="share-tools"><button class="secondary-button" disabled={classError} onclick={shareClass}>학급 링크 복사</button><span role="status">{shareState}</span></div>
+      <div class="share-tools"><button class="secondary-button" disabled={classError} onclick={shareClass}>학급 링크 복사</button><button class="secondary-button" disabled={classError || apiNotConfigured} onclick={subscribeTimetable}>캘린더 구독 링크</button><span role="status">{shareState || subscriptionState}</span></div>
       {#if shareUrl}<label class="shared-link">공유 링크<input type="text" readonly value={shareUrl} onfocus={(event) => event.currentTarget.select()} /></label>{/if}
+      {#if subscriptionUrl}<label class="shared-link">시간표 구독 URL (현재·다음 주, 교시별 종일 일정)<input type="text" readonly value={subscriptionUrl} onfocus={(event) => event.currentTarget.select()} /></label>{/if}
     {/if}
     {#if apiNotConfigured}<p class="notice" role="alert">학교 정보를 불러올 API 주소가 설정되지 않았어요.</p>{/if}
+    {#if school}
+      <div class="favorite-save"><button class="secondary-button" disabled={classError || currentFavorite || favorites.length >= 10} onclick={addFavorite}>{currentFavorite ? '즐겨찾기 저장됨' : '현재 학급 즐겨찾기 추가'}</button><span>{favorites.length}/10개 저장됨</span></div>
+    {/if}
+    {#if favorites.length}
+      <section class="favorites-bar" aria-labelledby="favorites-title">
+        <div class="favorites-heading"><h2 id="favorites-title">즐겨찾는 학급</h2><span>선택하면 바로 전환됩니다</span></div>
+        <div class="favorite-list">
+          {#each favorites as favorite (`${favorite.school.id}-${favorite.grade}-${favorite.classroom}`)}
+            <div class="favorite-item">
+              <button class="favorite-switch" aria-pressed={school?.id === favorite.school.id && Number(grade) === favorite.grade && Number(classroom) === favorite.classroom} onclick={() => switchToFavorite(favorite)}>
+                <strong>{favorite.school.name}</strong><span>{favorite.grade}학년 {favorite.classroom}반</span>
+              </button>
+              <button class="favorite-remove" aria-label={`${favorite.school.name} ${favorite.grade}학년 ${favorite.classroom}반 즐겨찾기 삭제`} onclick={() => removeFavorite(favorite)}>×</button>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
     {#if schoolEditorOpen || !school}
       <section id="school-settings" class="school-panel" aria-label="학교 및 학급 선택">
         <div class="search-field">
@@ -335,7 +441,7 @@
     </nav>
     <div id="calendar" class="calendar-content" tabindex="-1">
         <section id="timetable-panel" hidden={view !== 'timetable'} aria-labelledby="timetable-title">
-          <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '다음 주'}</p><h2 id="timetable-title">우리 반 시간표</h2></div><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div>
+          <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '다음 주'}</p><h2 id="timetable-title">우리 반 시간표</h2></div><div class="heading-actions"><button class="secondary-button" disabled={!school || tableLoading} onclick={() => loadTimetable(!!timetable)} aria-label="현재 표시 중인 주의 시간표 새로고침">새로고침</button><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div></div>
           <div class="view-switch" role="group" aria-label="시간표 보기"><button aria-pressed={timetableView === 'today'} onclick={() => selectTimetableView('today')}>오늘</button><button aria-pressed={timetableView === 'week'} onclick={() => selectTimetableView('week')}>주간 반</button><button aria-pressed={timetableView === 'grade'} onclick={() => selectTimetableView('grade')}>학년 비교</button><button aria-pressed={timetableView === 'teacher'} onclick={() => selectTimetableView('teacher')}>교사 찾기</button></div>
           <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeWeek(-1)} disabled={week <= current} aria-label="이전 주">←</button><div class="calendar-date" aria-live="polite"><strong>{dateText(week)} — {dateText(addDays(week, weekendClasses ? 6 : 4))}</strong><span>{weekendClasses ? '월요일부터 일요일' : '월요일부터 금요일'}</span></div><button class="arrow-button" onclick={() => changeWeek(1)} disabled={week >= addDays(current, 7)} aria-label="다음 주">→</button></div>
           {#if timetable && !classError}<details class="lesson-search"><summary>우리 반 수업 검색</summary><div class="lesson-search-fields"><label>과목·교사<input type="search" bind:value={lessonQuery} placeholder="과목 또는 교사 이름" maxlength="100" /></label><label>요일<select bind:value={lessonWeekday}><option value="">모든 요일</option>{#each ['일', '월', '화', '수', '목', '금', '토'] as day, index}<option value={String(index)}>{day}요일</option>{/each}</select></label></div>{#if lessonQuery.trim() || lessonWeekday}<p role="status">{matchingLessons.length}개 수업</p><div class="lesson-list">{#each matchingLessons as lesson}<article><span class="lesson-period">{dateText(lesson.date, { weekday: 'short' })} · {lesson.period}교시</span><strong>{lesson.subject || '수업 정보 없음'}</strong><span>{lesson.teacher || '교사 정보 없음'}</span></article>{/each}</div>{:else}<p>현재 선택한 학급의 주간 시간표에서 검색합니다.</p>{/if}</details>{/if}

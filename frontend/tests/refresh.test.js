@@ -136,3 +136,74 @@ test('returning to this timetable week retains previous results if refreshing fa
   assert.equal(app.state().hasMeals, true);
   assert.ok(app.state().tableState);
 });
+
+test('revisiting a loaded week uses browser memory while explicit refresh still contacts the server', async () => {
+  const { app, calls } = await createApp();
+  const school = { id: 'school', name: '학교', region: '서울' };
+  app.chooseSchool(school);
+  const thisWeek = { records: [{ subject: '과학' }], stale: false };
+  calls.timetable[0].resolve(thisWeek);
+  await new Promise(setImmediate);
+
+  app.changeWeek(1);
+  const nextWeek = { records: [{ subject: '국어' }], stale: false };
+  calls.timetable[1].resolve(nextWeek);
+  await new Promise(setImmediate);
+
+  app.changeWeek(-1);
+  assert.equal(calls.timetable.length, 2);
+  assert.equal(app.state().timetable, thisWeek);
+  assert.equal(app.state().tableLoading, false);
+
+  app.currentWeek();
+  assert.equal(calls.timetable.length, 3, '명시적 새로고침은 메모리 캐시를 우회한다');
+  calls.timetable[2].resolve(thisWeek);
+  await new Promise(setImmediate);
+
+  app.chooseSchool({ id: 'other', name: '다른 학교', region: '경기' });
+  assert.equal(calls.timetable.length, 4, '다른 학교는 기존 주간 캐시를 재사용하지 않는다');
+  app.chooseSchool(school);
+  assert.equal(calls.timetable.length, 4, '기존 학교로 돌아가면 저장한 주간 데이터를 즉시 표시한다');
+  assert.equal(app.state().timetable, thisWeek);
+  assert.equal(calls.timetable[3].signal.aborted, true);
+});
+
+test('expired or upstream-stale timetables are fetched again on week revisit', async () => {
+  const { app, calls, setNow, setVisibility } = await createApp();
+  app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
+  calls.timetable[0].resolve({ records: [{ subject: '수학' }], stale: false });
+  await new Promise(setImmediate);
+  app.changeWeek(1);
+  calls.timetable[1].resolve({ records: [], stale: true });
+  await new Promise(setImmediate);
+
+  app.changeWeek(-1);
+  assert.equal(calls.timetable.length, 2, '유효한 주간 응답은 재사용한다');
+  app.changeWeek(1);
+  assert.equal(calls.timetable.length, 3, '원본 stale 응답은 재사용하지 않는다');
+  calls.timetable[2].resolve({ records: [], stale: false });
+  await new Promise(setImmediate);
+
+  setVisibility('hidden');
+  setNow(1_000 + 30 * 60 * 1000);
+  app.changeWeek(-1);
+  assert.equal(calls.timetable.length, 4, '30분 만료 후에는 다시 요청한다');
+  assert.equal(app.state().timetable, null);
+});
+
+test('navigating an expired week only fetches the destination week once', async () => {
+  const { app, calls, setNow } = await createApp();
+  app.chooseSchool({ id: 'school', name: '학교', region: '서울' });
+  calls.timetable[0].resolve({ records: [], stale: false });
+  await new Promise(setImmediate);
+
+  setNow(1_000 + 30 * 60 * 1000);
+  app.changeWeek(1);
+  assert.equal(calls.timetable.length, 2, '이전 주의 만료 데이터는 이동 중 재조회하지 않는다');
+  assert.equal(calls.timetable[1].week, '2026-11-16');
+
+  app.currentWeek();
+  assert.equal(calls.timetable.length, 3, '이번 주 버튼은 목적지 주간만 한 번 요청한다');
+  assert.equal(calls.timetable[2].week, '2026-11-09');
+  assert.equal(calls.timetable[1].signal.aborted, true);
+});

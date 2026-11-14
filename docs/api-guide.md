@@ -7,7 +7,7 @@
 - 기본 경로: `/api/v1`
 - 메서드: `GET`, `HEAD`, `OPTIONS` (쓰기 API 없음)
 - 개발용 API 주소: `http://127.0.0.1:8000` (API를 실행하는 **같은 기기**에서만 접근)
-- HTTP 응답: JSON (UTF-8). 모든 응답에 `Cache-Control: no-store`; 애플리케이션 내부 캐시는 별개
+- HTTP 응답: JSON (UTF-8), 시간표 구독만 `text/calendar` (UTF-8). 모든 응답에 `Cache-Control: no-store`; 애플리케이션 내부 캐시는 별개
 - 브라우저에서 다른 출처로 호출하려면 서버의 `ALLOWED_ORIGIN`과 배포 경로를 함께 맞춰야 합니다.
 
 API와 같은 출처의 LAN 검수 화면은 `/opensigan/api-docs.html`에 요청 Playground가 있습니다. GitHub Pages에서 이 Playground의 실시간 요청은 비활성화되어 있습니다.
@@ -20,6 +20,7 @@ API와 같은 출처의 LAN 검수 화면은 `/opensigan/api-docs.html`에 요�
 | GET | `/api/v1/schools` | `q` | 컴시간 학교 검색, 검색어 1~50자 |
 | GET | `/api/v1/neis/schools` | `q` | NEIS 학교 검색, 서버 측 API 키 필요 |
 | GET | `/api/v1/timetable` | `school`, `week` | 컴시간 학교 ID와 이번/다음 주 월요일(KST) |
+| GET | `/api/v1/timetable.ics` | `school`, `grade`, `class` | 지속해서 사용하는 iCalendar 구독 URL, 기본 이번 주·`weeks=2`면 다음 주까지 |
 | GET | `/api/v1/meals` | `school`, `from`, `to` | NEIS 학교 ID와 최대 7일(양 끝 포함) |
 | GET | `/api/v1/timetable/history` | `school`, `week` | 선택적 `cursor`. 변경 이력 미설정 시 503 |
 
@@ -61,7 +62,21 @@ curl --get 'http://127.0.0.1:8000/api/v1/timetable' \
 }
 ```
 
-`records`는 요청한 학교의 **전체 학급**을 포함하므로, 특정 반이 필요하면 `grade`·`class` 필드를 클라이언트에서 필터링합니다. 교사 검색도 같은 데이터를 재사용합니다.
+기본 `records`는 요청한 학교의 **전체 학급**을 포함합니다. 특정 반만 원하면 `grade=2&class=3`, 교사 이름 일부로 검색하려면 `teacher=김`을 추가할 수 있습니다. 필터 요청은 학교·주별 서버 캐시를 재사용하므로 원본 요청이 늘지 않습니다.
+
+### 시간표 캘린더 구독 (.ics)
+
+웹 화면의 **캘린더 구독 링크**를 눌러 URL을 복사한 뒤, 캘린더 앱에 URL 구독으로 등록할 수 있습니다. 시간이 지나도 같은 URL이 현재 주를 가리키며 `weeks=2`를 선택하면 다음 주까지 포함합니다. 구독 요청도 JSON 시간표와 같은 서버 캐시를 이용합니다.
+
+```bash
+curl --get 'http://127.0.0.1:8000/api/v1/timetable.ics' \
+  --data-urlencode 'school=1234:예시학교' \
+  --data-urlencode 'grade=2' \
+  --data-urlencode 'class=3' \
+  --data-urlencode 'weeks=2'
+```
+
+원본 시간표에는 교시별 **실제 시작·종료 시각이 없으므로** 각 수업이 종일 일정으로 표시됩니다. 캘린더 앱마다 새 구독 데이터를 가져오는 주기가 달라 즉시 반영되지 않을 수 있습니다. 외부 캘린더 앱에서 받아야 하므로 앱이 접근할 수 없는 내부망 주소로는 외부 구독이 동작하지 않습니다.
 
 ## 캐시와 변경 이력
 

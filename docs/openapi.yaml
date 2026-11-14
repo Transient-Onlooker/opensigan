@@ -161,6 +161,7 @@ paths:
     get:
       tags: [Timetable]
       summary: Get a school's timetable for a week
+      description: Optional filters apply to records after the shared school/week cache lookup; filters do not trigger extra upstream requests.
       parameters:
         - name: school
           in: query
@@ -173,6 +174,21 @@ paths:
           description: Monday of the current or following week (Asia/Seoul).
           schema: { type: string, format: date }
           example: '2026-11-16'
+        - name: grade
+          in: query
+          required: false
+          description: Return records only for this grade.
+          schema: { type: integer, minimum: 1, maximum: 6 }
+        - name: class
+          in: query
+          required: false
+          description: Return records only for this class number (can be combined with grade).
+          schema: { type: integer, minimum: 1, maximum: 99 }
+        - name: teacher
+          in: query
+          required: false
+          description: Case-insensitive substring match on the teacher name, maximum 50 characters.
+          schema: { type: string, minLength: 1, maxLength: 50 }
       responses:
         '200':
           description: Timetable records for the requested week.
@@ -187,6 +203,49 @@ paths:
                 fetchedAt: '2026-11-14T01:00:00Z'
                 stale: false
                 cacheStatus: miss
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/UpstreamUnavailable' }
+  /api/v1/timetable.ics:
+    get:
+      tags: [Timetable]
+      summary: Subscribe to a rolling classroom timetable as iCalendar
+      description: |-
+        Returns the current week (and optionally the next week) in Asia/Seoul.
+        Calendar subscribers may use the same URL across weeks. The feed uses
+        the same school/week cache as the JSON timetable endpoint. Individual
+        lessons are all-day events, because the upstream source has no bell times.
+      parameters:
+        - name: school
+          in: query
+          required: true
+          schema: { type: string, pattern: '^[0-9]+:[^:]{1,50}$' }
+          example: '2:봄빛고등학교'
+        - name: grade
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 6 }
+        - name: class
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 99 }
+        - name: teacher
+          in: query
+          required: false
+          description: Optional case-insensitive substring filter.
+          schema: { type: string, minLength: 1, maxLength: 50 }
+        - name: weeks
+          in: query
+          required: false
+          description: Number of rolling weeks to include. Default 1 to minimize upstream traffic.
+          schema: { type: integer, enum: [1, 2], default: 1 }
+      responses:
+        '200':
+          description: UTF-8 RFC 5545 iCalendar feed (all-day events)
+          content:
+            text/calendar:
+              schema: { type: string }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/TooManyRequests' }

@@ -9,12 +9,13 @@ import threading
 import time
 import wsgiref.simple_server
 from collections import OrderedDict, deque
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from backend.cache import Cache
 from backend.analytics import ApiRecorder
+from backend.ical import render_timetable_ics
 from backend.shutter import Shutter
 from backend.neis import NEISClient, School
 from backend.timetable import fetch_timetable, search_schools, validate_timetable_week
@@ -71,6 +72,40 @@ def _query_param(params, key, limit):
     if len(values) != 1 or not values[0].strip() or len(values[0]) > limit:
         raise ValueError(f"{key} 값이 올바르지 않습니다")
     return values[0].strip()
+
+
+def _timetable_filters(query, require_class=False):
+    grade_filter = None
+    class_filter = None
+    teacher_filter = None
+    if require_class or "grade" in query:
+        raw_grade = _query_param(query, "grade", 1)
+        if not re.fullmatch(r"[1-6]", raw_grade):
+            raise ValueError("grade는 1부터 6까지의 정수여야 합니다")
+        grade_filter = int(raw_grade)
+    if require_class or "class" in query:
+        raw_class = _query_param(query, "class", 2)
+        if not re.fullmatch(r"[1-9][0-9]?", raw_class):
+            raise ValueError("class는 1부터 99까지의 정수여야 합니다")
+        class_filter = int(raw_class)
+    if "teacher" in query:
+        teacher_filter = _query_param(query, "teacher", 50).casefold()
+    return grade_filter, class_filter, teacher_filter
+
+
+def _cached_timetable(school, week, current_cache):
+    def fetch_and_record():
+        started_at = datetime.now(timezone.utc).isoformat()
+        data = fetch_timetable(school, week)
+        try:
+            store = _history_store()
+            if store is not None and not data.get("stale", False):
+                store.observe(school, week, data["records"], observed_at=data["fetchedAt"], started_at=started_at)
+        except Exception:
+            logger.exception("history recording failed")
+        return data
+
+    return current_cache.get(("timetable", school, week), fetch_and_record, with_status=True)
 
 
 def _read_request_body(stream, content_length):
@@ -226,19 +261,37 @@ def _dispatch_request(method, path, query_string, cache_instance=None, client=No
                 raise ValueError("학교 식별자가 올바르지 않습니다")
             week = _query_param(query, "week", 10)
             validate_timetable_week(week)
-            def fetch_and_record():
-                started_at = datetime.now(timezone.utc).isoformat()
-                data = fetch_timetable(school, week)
-                try:
-                    store = _history_store()
-                    if store is not None and not data.get("stale", False):
-                        store.observe(school, week, data["records"], observed_at=data["fetchedAt"], started_at=started_at)
-                except Exception:
-                    logger.exception("history recording failed")
-                return data
-
-            result, cache_status = current_cache.get(("timetable", school, week), fetch_and_record, with_status=True)
-            result["cacheStatus"] = cache_status
+            grade_filter, class_filter, teacher_filter = _timetable_filters(query)
+            timetable, cache_status = _cached_timetable(school, week, current_cache)
+            result = {**timetable, "cacheStatus": cache_status}
+            if grade_filter is not None or class_filter is not None or teacher_filter is not None:
+                result["records"] = [record for record in timetable["records"]
+                                     if (grade_filter is None or int(record["grade"]) == grade_filter)
+                                     and (class_filter is None or int(record["class"]) == class_filter)
+                                     and (teacher_filter is None or teacher_filter in (record.get("teacher") or "").casefold())]
+        elif path == "/api/v1/timetable.ics":
+            school = _query_param(query, "school", 100)
+            if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school):
+                raise ValueError("학교 식별자가 올바르지 않습니다")
+            grade_filter, class_filter, teacher_filter = _timetable_filters(query, require_class=True)
+            weeks = _query_param(query, "weeks", 1) if "weeks" in query else "1"
+            if weeks not in ("1", "2"):
+                raise ValueError("weeks는 1 또는 2여야 합니다")
+            now = datetime.now(timezone(timedelta(hours=9))).date()
+            monday = now - timedelta(days=now.weekday())
+            timetables = []
+            for offset in range(int(weeks)):
+                week = (monday + timedelta(days=offset * 7)).isoformat()
+                timetable, _ = _cached_timetable(school, week, current_cache)
+                if teacher_filter is not None:
+                    timetable = {**timetable, "records": [r for r in timetable["records"]
+                                 if teacher_filter in (r.get("teacher") or "").casefold()]}
+                timetables.append(timetable)
+            body = render_timetable_ics(school, grade_filter, class_filter, timetables)
+            headers["Content-Type"] = "text/calendar; charset=utf-8"
+            headers["Content-Disposition"] = 'inline; filename="opencigan.ics"'
+            headers["Content-Length"] = str(len(body))
+            return 200, headers, body
         elif path == "/api/v1/timetable/history":
             school = _query_param(query, "school", 100)
             if not re.fullmatch(r"[0-9]+:[^:]{1,50}", school):
@@ -334,7 +387,7 @@ _api_recorder = ApiRecorder(_analytics_store)
 def dispatch_request(method, path, query_string, cache_instance=None, client=None, request_origin=None, request_body=None, request_headers=None, shutter_instance=None):
     started = time.perf_counter()
     response = _dispatch_request(method, path, query_string, cache_instance, client, request_origin, request_body, request_headers, shutter_instance)
-    if method in ("GET", "HEAD") and path in ("/api/v1/schools", "/api/v1/neis/schools", "/api/v1/timetable", "/api/v1/timetable/history", "/api/v1/meals") and os.environ.get("OPENCIGAN_ANALYTICS_DB"):
+    if method in ("GET", "HEAD") and path in ("/api/v1/schools", "/api/v1/neis/schools", "/api/v1/timetable", "/api/v1/timetable.ics", "/api/v1/timetable/history", "/api/v1/meals") and os.environ.get("OPENCIGAN_ANALYTICS_DB"):
         _api_recorder.submit(path, method, response[0], (time.perf_counter() - started) * 1000)
     return response
 
