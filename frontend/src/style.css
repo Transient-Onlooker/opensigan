@@ -90,6 +90,7 @@ label{font-size:14px;font-weight:650}
 .state-message p{margin:0;font-size:15px}
 .notice{border:1px solid var(--line);border-left:3px solid var(--ink);padding:14px 16px;margin:0 0 18px;background:var(--soft);font-size:15px;overflow-wrap:anywhere}
 .text-button{min-height:44px;border:0;background:transparent;color:var(--ink);font-size:15px;padding:8px;text-decoration:underline;text-underline-offset:4px}
+.analytics-note{margin:24px 0 0;padding:12px 0;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}.analytics-note .text-button{min-height:36px;font-size:13px;padding:4px 6px}
 .meal-connection{font-size:14px;color:var(--muted);margin:0 0 18px;overflow-wrap:anywhere}
 .connection-options{border:1px solid var(--line);padding:6px}
 .meal-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}

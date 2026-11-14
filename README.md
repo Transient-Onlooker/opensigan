@@ -67,3 +67,4 @@ npm run build
 - 컴시간 원본 데이터의 재제공 허용 범위, 개인정보 처리, 외부 서비스 이용 조건은 공개 전에 확인해야 합니다. 교사 정보는 upstream이 제공한 범위로 표시합니다.
 - Cloudflare Worker/D1은 [기존 배포 기록](workers-api/README.md)과 [Phase 0 실험](phase0/REPORT.md)에 남겨 두었습니다.
 - 실제 NEIS API 확인에는 서버 측 인증키가 필요합니다. API 키를 브라우저 번들에 포함하지 않습니다.
+- 가명 이용 통계는 [설정과 집계 기준](docs/analytics.md)을 참고하세요.
