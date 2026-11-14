@@ -214,18 +214,19 @@
       settingsBackupState = '현재 학교의 시간표 표시 설정을 초기화했어요.';
     }
   }
-  function downloadSettingsBackup() {
+  function downloadSettingsBackup(classOnly = false) {
     if (!school) return;
-    const contents = createSettingsBackup(school.id, schoolDisplaySettings, lessonTimes);
+    const scope = classOnly ? { grade: Number(grade), classroom: Number(classroom) } : undefined;
+    const contents = createSettingsBackup(school.id, classOnly ? displaySettings : schoolDisplaySettings, lessonTimes, scope);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `opencigan-settings-${school.id.replace(/[^a-zA-Z0-9_-]/g, '-')}.json`;
+    link.download = `opencigan-settings-${school.id.replace(/[^a-zA-Z0-9_-]/g, '-')}${scope ? `-${scope.grade}-${scope.classroom}` : ''}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    settingsBackupState = '현재 학교의 표시 설정과 교시 시각을 파일로 저장했어요.';
+    settingsBackupState = classOnly ? '현재 학급의 표시 설정을 파일로 저장했어요.' : '현재 학교의 표시 설정과 교시 시각을 파일로 저장했어요.';
   }
   async function importSettingsFile(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -233,10 +234,21 @@
     input.value = '';
     if (!file || !school) return;
     const schoolId = school.id;
+    const scope = { grade: Number(grade), classroom: Number(classroom) };
+    const targetClass = classDisplayKey;
     try {
       if (file.size > MAX_SETTINGS_BACKUP_BYTES) throw new Error('설정 파일은 64KB 이하여야 해요.');
-      const backup = parseSettingsBackup(await file.text(), schoolId);
+      const backup = parseSettingsBackup(await file.text(), schoolId, scope);
       if (school?.id !== schoolId) throw new Error('학교가 변경되어 설정을 적용하지 않았어요.');
+      if (backup.scoped) {
+        if (targetClass !== classDisplayKey || classError) throw new Error('학급이 변경되어 설정을 적용하지 않았어요.');
+        try { localStorage.setItem(targetClass, JSON.stringify(backup.displaySettings)); }
+        catch { throw new Error('브라우저 저장소에 설정을 저장하지 못했어요.'); }
+        classDisplayDrafts.set(targetClass, backup.displaySettings);
+        loadClassDisplay(targetClass, schoolDisplaySettings);
+        settingsBackupState = '현재 학급의 표시 설정을 복원했어요.';
+        return;
+      }
       const displayKey = 'opensigan-display:' + schoolId;
       const timesKey = 'opensigan-lesson-times:' + schoolId;
       const previousDisplay = localStorage.getItem(displayKey);
@@ -988,9 +1000,10 @@
              </details>
              <details class="settings-backup">
                <summary>설정 백업·복원</summary>
-               <p class="display-settings-hint">현재 학교의 시간표 표시 설정과 교시 시각만 파일에 저장해요. 급식 알레르기 설정은 포함하지 않아요.</p>
+               <p class="display-settings-hint">학교 파일에는 기본 표시 설정과 교시 시각을, 학급 파일에는 해당 학급의 표시 설정을 저장해요. 두 파일 모두 급식 알레르기 설정은 포함하지 않아요.</p>
                <div class="lesson-time-actions">
-                 <button class="secondary-button" type="button" onclick={downloadSettingsBackup}>설정 파일 저장</button>
+                 <button class="secondary-button" type="button" onclick={() => downloadSettingsBackup()}>학교 설정 파일 저장</button>
+                 {#if useClassDisplay}<button class="secondary-button" type="button" disabled={classError} onclick={() => downloadSettingsBackup(true)}>학급 설정 파일 저장</button>{/if}
                  <label class="settings-import">설정 파일 불러오기 <input type="file" accept=".json,application/json" aria-label="Opencigan 설정 JSON 파일 불러오기" onchange={importSettingsFile} /></label>
                  <button class="secondary-button" type="button" onclick={resetDisplaySettings}>{useClassDisplay ? '이 학급에 학교 기본 설정 적용' : '학교 표시 설정 초기화'}</button>
                </div>

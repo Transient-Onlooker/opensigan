@@ -53,3 +53,13 @@ test('rejects invalid period numbers and overlapping class times instead of sile
   assert.throws(() => parseSettingsBackup(JSON.stringify({ ...original, lessonTimes: { ...times, 2: { start: '09:30', end: '10:10' } } }), schoolId));
   assert.throws(() => parseSettingsBackup(JSON.stringify({ ...original, lessonTimes: { 1: { start: '25:00', end: '26:00' } } }), schoolId));
 });
+
+test('classroom backups restore only into the matching class and omit school bell times', () => {
+  const scope = { grade: 1, classroom: 2 };
+  const exported = createSettingsBackup(schoolId, display, times, scope);
+  assert.equal(JSON.parse(exported).lessonTimes, undefined);
+  assert.equal(parseSettingsBackup(exported, schoolId, scope).scoped, true);
+  assert.equal(parseSettingsBackup(exported, schoolId, scope).displaySettings.density, 'compact');
+  assert.throws(() => parseSettingsBackup(exported, schoolId, { ...scope, classroom: 3 }), /학급/);
+  assert.throws(() => parseSettingsBackup(exported, schoolId), /학급/);
+});
