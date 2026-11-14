@@ -196,4 +196,29 @@ button,.school-option,.footer-links a{transition:background-color .16s ease,colo
   footer{margin-top:28px}
 }
 @media(max-width:390px){main{width:calc(100% - 24px)}.topbar{padding-inline:12px}.calendar-date strong{font-size:17px}.date-picker{gap:4px}.section-heading{gap:8px}.section-heading .secondary-button{padding-inline:8px}.school-heading h1{font-size:20px}}
+.timetable.no-cell-borders th,.timetable.no-cell-borders td{border-right:0;border-bottom:0}
+.grade-compact.no-cell-borders .grade-period,.grade-compact.no-cell-borders .grade-period h3,.grade-compact.no-cell-borders .grade-class{border:0}
+.lesson-list article.changed:not(.active-lesson){box-shadow:inset 3px 0 var(--ink)}
+.lesson-list.density-compact article{min-height:50px;padding:8px 10px;gap:6px}
+.lesson-list.density-relaxed article{min-height:88px;padding:18px 16px;gap:16px}
+.timetable.density-compact thead th{height:48px}
+.timetable.density-compact td{height:60px;padding:5px 3px}
+.timetable.density-compact .class-cell{gap:2px}
+.timetable.density-compact .class-cell strong{font-size:clamp(11px,1.35vw,15px)}
+.timetable.density-compact .class-cell+.class-cell{padding-top:4px;margin-top:4px}
+.timetable.density-relaxed thead th{height:78px}
+.timetable.density-relaxed td{height:110px;padding:15px 8px}
+.timetable.density-relaxed .class-cell{gap:8px}
+.grade-compact.density-compact{gap:8px}
+.grade-compact.density-compact .grade-class{padding:6px 8px}
+.grade-compact.density-relaxed{gap:16px}
+.grade-compact.density-relaxed .grade-class{padding:15px 12px}
+@media(max-width:700px){
+  .timetable.density-compact:not(.comparison-table) thead th{height:40px}
+  .timetable.density-compact:not(.comparison-table) td{height:56px;padding:4px 2px}
+  .timetable.density-relaxed:not(.comparison-table) thead th{height:66px}
+  .timetable.density-relaxed:not(.comparison-table) td{height:94px;padding:10px 4px}
+  .lesson-list.density-compact article{gap:4px 8px}
+  .lesson-list.density-relaxed article{gap:8px 12px}
+}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}

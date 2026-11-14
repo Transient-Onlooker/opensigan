@@ -47,7 +47,9 @@ export function createExportGrid(options: ExportOptions) {
     title: schoolName,
     subtitle: view === 'teacher' ? `${displayTeacher(teacherName.trim(), settings)} 선생님 · ${labelDate(dates[0])} ~ ${labelDate(dates[dates.length - 1])}`
       : `${grade}학년 ${classroom}반 · ${view === 'today' ? labelDate(selectedDay) : `${labelDate(dates[0])} ~ ${labelDate(dates[dates.length - 1])}`}`,
-    columns: dates.map(labelDate),
+    columns: dates.map((date) => settings.showDates || view === 'today'
+      ? labelDate(date)
+      : new Intl.DateTimeFormat('ko-KR', { timeZone: 'UTC', weekday: 'short' }).format(new Date(date + 'T00:00:00Z'))),
     periods,
     rows,
   };

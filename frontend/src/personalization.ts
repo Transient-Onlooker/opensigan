@@ -4,6 +4,11 @@ export interface DisplaySettings {
   colorMode: ColorMode;
   endedLessonMode: 'dim' | 'hide' | 'normal';
   dimOtherDays: boolean;
+  showDates: boolean;
+  showChangeHighlights: boolean;
+  showChangeBadges: boolean;
+  showCellBorders: boolean;
+  density: 'compact' | 'normal' | 'relaxed';
   subjectColors: Record<string, string>;
   subjectAliases: Record<string, string>;
   teacherAliases: Record<string, string>;
@@ -13,7 +18,7 @@ export interface DisplaySettings {
 }
 
 export function defaultDisplaySettings(): DisplaySettings {
-  return { colorMode: 'none', endedLessonMode: 'dim', dimOtherDays: false, subjectColors: {}, subjectAliases: {}, teacherAliases: {}, teacherPrefix: '', teacherSuffix: '', showTeachers: true };
+  return { colorMode: 'none', endedLessonMode: 'dim', dimOtherDays: false, showDates: true, showChangeHighlights: true, showChangeBadges: true, showCellBorders: true, density: 'normal', subjectColors: {}, subjectAliases: {}, teacherAliases: {}, teacherPrefix: '', teacherSuffix: '', showTeachers: true };
 }
 
 function textMap(value: unknown, maxLength: number): Record<string, string> {
@@ -32,6 +37,11 @@ export function parseDisplaySettings(value: unknown): DisplaySettings {
     colorMode: saved.colorMode === 'auto' || saved.colorMode === 'custom' ? saved.colorMode : 'none',
     endedLessonMode: saved.endedLessonMode === 'hide' || saved.endedLessonMode === 'normal' ? saved.endedLessonMode : 'dim',
     dimOtherDays: saved.dimOtherDays === true,
+    showDates: typeof saved.showDates === 'boolean' ? saved.showDates : defaults.showDates,
+    showChangeHighlights: typeof saved.showChangeHighlights === 'boolean' ? saved.showChangeHighlights : defaults.showChangeHighlights,
+    showChangeBadges: typeof saved.showChangeBadges === 'boolean' ? saved.showChangeBadges : defaults.showChangeBadges,
+    showCellBorders: typeof saved.showCellBorders === 'boolean' ? saved.showCellBorders : defaults.showCellBorders,
+    density: saved.density === 'compact' || saved.density === 'relaxed' ? saved.density : 'normal',
     subjectColors: Object.fromEntries(Object.entries(colors).filter(([, color]) => /^#[0-9a-fA-F]{6}$/.test(color))),
     subjectAliases: textMap(saved.subjectAliases, 60),
     teacherAliases: textMap(saved.teacherAliases, 60),

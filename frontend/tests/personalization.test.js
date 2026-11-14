@@ -19,6 +19,30 @@ test('ended lesson and other weekday visibility settings default safely and pars
   assert.equal(parseDisplaySettings({ endedLessonMode: 'invalid', dimOtherDays: 'true' }).dimOtherDays, false);
 });
 
+test('timetable display preferences load old saves and reject invalid values', () => {
+  const defaults = parseDisplaySettings({ showTeachers: false });
+  assert.equal(defaults.showDates, true);
+  assert.equal(defaults.showChangeHighlights, true);
+  assert.equal(defaults.showChangeBadges, true);
+  assert.equal(defaults.showCellBorders, true);
+  assert.equal(defaults.density, 'normal');
+
+  const custom = parseDisplaySettings({ showDates: false, showChangeHighlights: false, showChangeBadges: false, showCellBorders: false, density: 'compact' });
+  assert.equal(custom.showDates, false);
+  assert.equal(custom.showChangeHighlights, false);
+  assert.equal(custom.showChangeBadges, false);
+  assert.equal(custom.showCellBorders, false);
+  assert.equal(custom.density, 'compact');
+  assert.equal(parseDisplaySettings({ density: 'relaxed' }).density, 'relaxed');
+
+  const invalid = parseDisplaySettings({ showDates: 'false', showChangeHighlights: null, showChangeBadges: 0, showCellBorders: 'no', density: 'extra' });
+  assert.equal(invalid.showDates, true);
+  assert.equal(invalid.showChangeHighlights, true);
+  assert.equal(invalid.showChangeBadges, true);
+  assert.equal(invalid.showCellBorders, true);
+  assert.equal(invalid.density, 'normal');
+});
+
 test('default settings keep monochrome and original labels', () => {
   const settings = defaultDisplaySettings();
   assert.equal(settings.colorMode, 'none');

@@ -54,6 +54,15 @@ test('today view exports only the chosen date', () => {
   assert.equal(grid.rows[0][0].length, 0);
 });
 
+test('PNG weekly headings respect the saved date visibility setting', () => {
+  const hidden = { ...personalization.defaultDisplaySettings(), showDates: false };
+  const weekly = createExportGrid({ ...options, displaySettings: hidden });
+  assert.deepEqual(Array.from(weekly.columns), ['월', '화', '수', '목', '금']);
+  assert.match(weekly.subtitle, /11\. 9/);
+  assert.match(createExportGrid({ ...options, displaySettings: hidden, view: 'today' }).columns[0], /11\. 9/);
+  assert.match(createExportGrid({ ...options }).columns[0], /11\. 9/);
+});
+
 test('export personalizes displayed labels without altering source records', () => {
   const settings = {
     ...personalization.defaultDisplaySettings(),
