@@ -68,7 +68,7 @@ function wrappedText(ctx: CanvasRenderingContext2D, value: string, maxWidth: num
   return lines.length ? lines : [''];
 }
 
-export async function saveTimetablePng(options: ExportOptions) {
+export async function createTimetablePng(options: ExportOptions) {
   const grid = createExportGrid(options);
   if (!grid.periods.length) throw new Error('저장할 수업 정보가 없어요.');
   await document.fonts?.ready;
@@ -178,12 +178,40 @@ export async function saveTimetablePng(options: ExportOptions) {
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => value ? resolve(value) : reject(new Error('이미지 생성에 실패했어요.')), 'image/png');
   });
+  const filename = `Opencigan_${options.schoolName.replace(/[\\/:*?"<>|]/g, '')}_${options.view}_${options.selectedDay}.png`;
+  return { blob, filename };
+}
+
+function downloadPng(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `Opencigan_${options.schoolName.replace(/[\\/:*?"<>|]/g, '')}_${options.view}_${options.selectedDay}.png`;
+  link.download = filename;
   document.body.append(link);
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+export async function saveTimetablePng(options: ExportOptions) {
+  const { blob, filename } = await createTimetablePng(options);
+  downloadPng(blob, filename);
+}
+
+export async function shareTimetablePng(options: ExportOptions): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  const { blob, filename } = await createTimetablePng(options);
+  if (typeof File !== 'undefined' && typeof navigator.share === 'function') {
+    const file = new File([blob], filename, { type: 'image/png' });
+    try {
+      if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `${options.schoolName} 시간표` });
+        return 'shared';
+      }
+    } catch (error) {
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') return 'cancelled';
+      // 공유를 지원하지 않거나 사용자 동작이 만료된 브라우저에서는 파일 저장으로 전환합니다.
+    }
+  }
+  downloadPng(blob, filename);
+  return 'downloaded';
 }

@@ -82,3 +82,59 @@ test('export personalizes displayed labels without altering source records', () 
   assert.match(teacherGrid.subtitle, /선생님 별칭T/);
   assert.equal(teacherGrid.rows[0][0][0].detail, '짧은 과목');
 });
+
+function shareHarness(share, canShare, fileSupported = true) {
+  let downloads = 0;
+  let shareCount = 0;
+  const context = new Proxy({ measureText: (value) => ({ width: value.length * 10 }) }, { get: (target, key) => target[key] ?? (() => {}) });
+  const sandbox = {
+    exports: {},
+    require: (name) => name === './personalization' ? personalization : undefined,
+    Blob,
+    File: fileSupported ? class { constructor(parts, name, fileOptions) { this.parts = parts; this.name = name; this.type = fileOptions.type; } } : undefined,
+    navigator: {
+      share: share && (async (data) => { shareCount++; await share(data); }),
+      canShare: canShare && ((data) => canShare(data)),
+    },
+    document: {
+      fonts: { ready: Promise.resolve() },
+      body: { append() {} },
+      createElement: (type) => type === 'canvas'
+        ? { getContext: () => context, toBlob: (callback) => callback(new Blob(['png'], { type: 'image/png' })) }
+        : { click: () => { downloads++; }, remove() {} },
+    },
+    URL: { createObjectURL: () => 'blob:local', revokeObjectURL() {} },
+    window: { setTimeout() {} },
+  };
+  runInNewContext(compiled, sandbox);
+  return { share: () => sandbox.exports.shareTimetablePng(options), getDownloads: () => downloads, getShareCount: () => shareCount };
+}
+
+test('PNG share uses the native file share sheet when supported', async () => {
+  const harness = shareHarness(async (data) => {
+    assert.equal(data.files.length, 1);
+    assert.equal(data.files[0].type, 'image/png');
+    assert.match(data.files[0].name, /^Opencigan_.*\.png$/);
+  }, (data) => data.files.length === 1);
+  assert.equal(await harness.share(), 'shared');
+  assert.equal(harness.getShareCount(), 1);
+  assert.equal(harness.getDownloads(), 0);
+});
+
+test('cancelled image share does not download a file', async () => {
+  const harness = shareHarness(async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }); }, () => true);
+  assert.equal(await harness.share(), 'cancelled');
+  assert.equal(harness.getDownloads(), 0);
+});
+
+test('unsupported share and share failures fall back to PNG download', async () => {
+  for (const harness of [
+    shareHarness(null, null),
+    shareHarness(async () => {}, () => false),
+    shareHarness(async () => { throw new Error('NotAllowedError'); }, () => true),
+    shareHarness(async () => {}, () => true, false),
+  ]) {
+    assert.equal(await harness.share(), 'downloaded');
+    assert.equal(harness.getDownloads(), 1);
+  }
+});

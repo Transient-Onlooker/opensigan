@@ -5,7 +5,7 @@
   import { trackPageView } from './analytics';
   import { shareClassUrl, readSharedClass, findLessons } from './sharing';
   import { allergens, allergenMatches, withoutAllergenNumbers } from './allergens';
-  import { saveTimetablePng } from './export-png';
+  import { saveTimetablePng, shareTimetablePng, type ExportOptions } from './export-png';
   import { slotLessons } from './timetable-slots';
   import { dailyLessonOverview, koreaClockMinutes, parseLessonTimes, type LessonTimes } from './lesson-times';
   import { defaultDisplaySettings, parseDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor, type ColorMode, type DisplaySettings } from './personalization';
@@ -34,6 +34,7 @@
   let allergySelection: number[] = [];
   let tableRefreshState = '';
   let exportState = '';
+  let exportBusy = false;
   let lessonQuery = '';
   let lessonWeekday = '';
   let shareUrl = '';
@@ -99,6 +100,7 @@
   $: teacherSuggestions = teacherNames.filter((name) => [name, displayTeacher(name, displaySettings)].some((label) => label.toLocaleLowerCase('ko-KR').includes(teacherQuery.trim().toLocaleLowerCase('ko-KR'))));
   $: selectedTeacherName = teacherNames.find((name) => name === teacherQuery.trim() || displayTeacher(name, displaySettings) === teacherQuery.trim()) ?? '';
   $: selectedTeacherRecords = selectedTeacherName ? (timetable?.records ?? []).filter((r) => r.teacher?.trim() === selectedTeacherName) : [];
+  $: canExport = !!timetable && !classError && timetableView !== 'grade' && (timetableView === 'teacher' ? selectedTeacherRecords.length > 0 : timetableView === 'today' ? dayRecords.some((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom)) : filtered.length > 0);
   $: teacherPeriods = Array.from({ length: Math.max(0, ...selectedTeacherRecords.map((r) => Number(r.period))) }, (_, i) => i + 1);
   $: teacherDates = Array.from({ length: 5 }, (_, i) => addDays(week, i));
   $: availableGrades = gradesInTimetable(timetable?.records ?? [], school && /(?:중학교|고등학교)/.test(school.name) ? 3 : 6);
@@ -465,24 +467,35 @@
     tableRefreshState = '갱신 중';
     loadTimetable(!!timetable);
   }
+  function pngOptions(): ExportOptions | null {
+    if (!timetable || !school || !canExport) return null;
+    return {
+      view: timetableView as ExportOptions['view'], schoolName: school.name,
+      grade: Number(grade), classroom: Number(classroom), week, selectedDay,
+      teacherName: selectedTeacherName, records: timetable.records, dark: isDark, displaySettings,
+    };
+  }
   async function exportPng() {
-    if (!timetable || !school || timetableView === 'grade' || classError) return;
+    const options = pngOptions();
+    if (!options || exportBusy) return;
+    exportBusy = true;
     exportState = 'PNG를 만드는 중…';
     try {
-      await saveTimetablePng({
-        view: timetableView,
-        schoolName: school.name,
-        grade: Number(grade),
-        classroom: Number(classroom),
-        week,
-        selectedDay,
-        teacherName: selectedTeacherName,
-        records: timetable.records,
-        dark: isDark,
-        displaySettings,
-      });
+      await saveTimetablePng(options);
       exportState = 'PNG 다운로드를 시작했어요.';
     } catch (error) { exportState = errorText(error); }
+    finally { exportBusy = false; }
+  }
+  async function sharePng() {
+    const options = pngOptions();
+    if (!options || exportBusy) return;
+    exportBusy = true;
+    exportState = '공유할 이미지를 만드는 중…';
+    try {
+      const result = await shareTimetablePng(options);
+      exportState = result === 'shared' ? '시간표 이미지를 공유했어요.' : result === 'cancelled' ? '' : '이 브라우저에서는 이미지 공유가 어려워 PNG로 저장했어요.';
+    } catch (error) { exportState = errorText(error); }
+    finally { exportBusy = false; }
   }
   function updateClass(event: Event) {
     shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
@@ -615,7 +628,7 @@
     </nav>
     <div id="calendar" class="calendar-content" tabindex="-1">
         <section id="timetable-panel" hidden={view !== 'timetable'} aria-labelledby="timetable-title">
-           <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '선택한 주'}</p><h2 id="timetable-title">시간표</h2></div><div class="heading-actions"><span class="last-fetched">{timetable ? '마지막 수집 ' + timeText(timetable.fetchedAt) : ''}</span>{#if timetable && timetableView !== 'grade'}<button class="secondary-button" disabled={classError || (timetableView === 'teacher' ? !selectedTeacherRecords.length : timetableView === 'today' ? !dayRecords.some((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom)) : !filtered.length)} onclick={exportPng}>PNG 저장</button>{/if}<button class="secondary-button refresh-button" disabled={!school || tableLoading} onclick={refreshTimetable} aria-label="현재 표시 중인 주의 시간표 새로고침"><svg class:spinning={tableLoading} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.4 9a7.5 7.5 0 0 1 13.3-1.4L20 12M4 12l1.3 4.4A7.5 7.5 0 0 0 18.6 15"/></svg> {tableLoading ? '갱신 중' : '새로고침'}</button><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div></div>
+           <div class="section-heading"><div><p class="eyebrow">{week === current ? '이번 주' : '선택한 주'}</p><h2 id="timetable-title">시간표</h2></div><div class="heading-actions"><span class="last-fetched">{timetable ? '마지막 수집 ' + timeText(timetable.fetchedAt) : ''}</span>{#if timetable && timetableView !== 'grade'}<button class="secondary-button" disabled={!canExport || exportBusy} onclick={exportPng}>PNG 저장</button><button class="secondary-button" disabled={!canExport || exportBusy} onclick={sharePng}>이미지 공유</button>{/if}<button class="secondary-button refresh-button" disabled={!school || tableLoading} onclick={refreshTimetable} aria-label="현재 표시 중인 주의 시간표 새로고침"><svg class:spinning={tableLoading} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.4 9a7.5 7.5 0 0 1 13.3-1.4L20 12M4 12l1.3 4.4A7.5 7.5 0 0 0 18.6 15"/></svg> {tableLoading ? '갱신 중' : '새로고침'}</button><button class="secondary-button" onclick={currentWeek}>이번 주로</button></div></div>
            {#if tableRefreshState}<p class="refresh-feedback" role="status">{tableRefreshState}</p>{/if}
            {#if exportState}<p class="export-feedback" role="status">{exportState}</p>{/if}
            <div class="view-switch timetable-switch" role="group" aria-label="시간표 보기"><button aria-pressed={timetableView === 'today'} onclick={() => selectTimetableView('today')}>오늘</button><button aria-pressed={timetableView === 'week'} onclick={() => selectTimetableView('week')}>이번 주</button><button aria-pressed={timetableView === 'grade'} onclick={() => selectTimetableView('grade')}>{grade}학년</button><button aria-pressed={timetableView === 'teacher'} onclick={() => selectTimetableView('teacher')}>교사</button></div>
