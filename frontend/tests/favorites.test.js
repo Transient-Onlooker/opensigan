@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { personalizationVm } from './helpers/personalization-vm.js';
+import { lessonTimesVm } from './helpers/lesson-times-vm.js';
 
 const component = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
 const script = component.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
@@ -20,6 +21,7 @@ function setup(initial = [], recordsBySchool = {}) {
   const requests = [];
   const app = runInNewContext(source, {
     ...personalizationVm,
+    ...lessonTimesVm,
     onMount() {}, currentKoreaDate: () => '2026-11-14', monday: () => '2026-11-09',
     addDays: () => '2026-11-15', clampWeek: (week) => week,
     localStorage: {

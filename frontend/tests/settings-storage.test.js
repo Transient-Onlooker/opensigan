@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { personalizationVm } from './helpers/personalization-vm.js';
+import { lessonTimesVm } from './helpers/lesson-times-vm.js';
 
 for (const failure of ['property access', 'storage methods']) {
   test(`storage unavailable through ${failure}: startup and settings remain usable`, async () => {
@@ -17,6 +18,7 @@ for (const failure of ['property access', 'storage methods']) {
     let themeListenerRemoved = false;
     const context = {
       ...personalizationVm,
+      ...lessonTimesVm,
       onMount: (callback) => { mount = callback; },
       isAnalyticsEnabled: () => false,
       currentKoreaDate: () => '2026-11-10', monday: () => '2026-11-09',

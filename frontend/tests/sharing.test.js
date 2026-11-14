@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { personalizationVm } from './helpers/personalization-vm.js';
+import { lessonTimesVm } from './helpers/lesson-times-vm.js';
 
 const source = await readFile(new URL('../src/sharing.ts', import.meta.url), 'utf8');
 const context = { exports: {}, URL, URLSearchParams };
@@ -47,6 +48,7 @@ test('shared class takes precedence at startup even when browser storage is bloc
   const javascript = ts.transpile(`(function(){${script}\nreturn { state: () => ({ school, grade, classroom }), changeTypeText };})()`, { target: ts.ScriptTarget.ES2022 });
   const app = runInNewContext(javascript, {
     ...personalizationVm,
+    ...lessonTimesVm,
     ...context.exports, onMount: (callback) => { mount = callback; },
     currentKoreaDate: () => '2026-11-14', monday: () => '2026-11-09',
     addDays: () => '2026-11-15', clampWeek: (week) => week,

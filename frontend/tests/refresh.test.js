@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { personalizationVm } from './helpers/personalization-vm.js';
+import { lessonTimesVm } from './helpers/lesson-times-vm.js';
 
 const addDays = (key, days) => {
   const date = new Date(`${key}T00:00:00Z`);
@@ -27,6 +28,7 @@ async function createApp() {
   const pending = (list, id, args) => new Promise((resolve, reject) => list.push({ id, ...args, resolve, reject }));
   const context = {
     ...personalizationVm,
+    ...lessonTimesVm,
     onMount() {}, currentKoreaDate: () => '2026-11-10', monday, addDays, clampWeek,
     document: { visibilityState: 'visible' },
     Date: class extends Date { static now() { return now; } },

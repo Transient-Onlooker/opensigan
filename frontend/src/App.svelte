@@ -7,6 +7,7 @@
   import { allergens, allergenMatches, withoutAllergenNumbers } from './allergens';
   import { saveTimetablePng } from './export-png';
   import { slotLessons } from './timetable-slots';
+  import { dailyLessonOverview, koreaClockMinutes, parseLessonTimes, type LessonTimes } from './lesson-times';
   import { defaultDisplaySettings, parseDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor, type ColorMode, type DisplaySettings } from './personalization';
   import { apiNotConfigured, getMeals, getTimetable, getTimetableHistory, searchSchools, searchNeisSchools, timetableSubscriptionUrl, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse, type TimetableChange } from './api';
 
@@ -25,6 +26,9 @@
   let timetableView: 'today' | 'week' | 'grade' | 'teacher' = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 700px)').matches ? 'today' : 'week';
   let teacherQuery = '';
   let displaySettings: DisplaySettings = defaultDisplaySettings();
+  let lessonTimes: LessonTimes = {};
+  let lessonTimeDrafts: Record<number, { start: string; end: string }> = {};
+  let lessonTimeState = '';
   let selectedSubject = '';
   let selectedTeacher = '';
   let allergySelection: number[] = [];
@@ -40,6 +44,7 @@
   let classroom = 1;
   let classError = false;
   let today = currentKoreaDate(new Date());
+  let clockMinute = koreaClockMinutes(new Date());
   let selectedDay = today;
   let current = monday(today);
   let week = current;
@@ -83,6 +88,8 @@
 
   $: filtered = (timetable?.records ?? []).filter((r) => Number(r.grade) === Number(grade) && Number(r.class) === Number(classroom));
   $: dayRecords = (timetable?.records ?? []).filter((r) => r.date === selectedDay);
+  $: selectedClassLessons = dayRecords.filter((r) => Number(r.grade) === Number(grade) && Number(r.class) === Number(classroom)).sort((a, b) => Number(a.period) - Number(b.period));
+  $: dayOverview = dailyLessonOverview(selectedClassLessons, lessonTimes, clockMinute, selectedDay === today);
   $: comparableClasses = [...new Set(dayRecords.filter((r) => Number(r.grade) === Number(grade)).map((r) => Number(r.class)))].sort((a, b) => a - b);
   $: gradeRecords = dayRecords.filter((r) => Number(r.grade) === Number(grade));
   $: teacherNames = [...new Set((timetable?.records ?? []).map((r) => r.teacher?.trim()).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b, 'ko-KR'));
@@ -99,6 +106,7 @@
   $: weekendClasses = filtered.some((r) => r.date === addDays(week, 5) || r.date === addDays(week, 6));
   $: dates = Array.from({ length: weekendClasses ? 7 : 5 }, (_, i) => addDays(week, i));
   $: periods = Array.from({ length: Math.max(0, ...filtered.map((r) => Number(r.period))) }, (_, i) => i + 1);
+  $: lessonTimePeriods = Array.from({ length: Math.max(8, ...((timetable?.records ?? []).map((r) => Number(r.period)).filter((period) => Number.isInteger(period) && period > 0 && period <= 20))) }, (_, i) => i + 1);
   $: dayMeals = meals.filter((meal) => meal.date === mealDate);
   $: visibleMealTypes = mealTypes.filter((type) => enabledMealTypes.includes(type));
   $: mealDates = Array.from({ length: 7 }, (_, index) => addDays(monday(mealDate), index));
@@ -155,6 +163,28 @@
     if (value === 'none' || value === 'auto' || value === 'custom') saveDisplaySettings({ ...displaySettings, colorMode: value as ColorMode });
   }
   function clearSubjectColors() { saveDisplaySettings({ ...displaySettings, subjectColors: {} }); }
+
+  function editLessonTime(period: number, part: 'start' | 'end', value: string) {
+    lessonTimeDrafts = { ...lessonTimeDrafts, [period]: { start: lessonTimeDrafts[period]?.start ?? '', end: lessonTimeDrafts[period]?.end ?? '', [part]: value } };
+    lessonTimeState = '';
+  }
+  function saveLessonTimes() {
+    if (!school) return;
+    const entries = Object.entries(lessonTimeDrafts).filter(([, entry]) => entry.start || entry.end);
+    const parsed = parseLessonTimes(Object.fromEntries(entries));
+    if (entries.length !== Object.keys(parsed).length) {
+      lessonTimeState = '각 교시의 시작·종료 시각을 모두 입력하고, 시간 순서와 겹침 여부를 확인해 주세요.';
+      return;
+    }
+    lessonTimes = parsed;
+    lessonTimeState = '이 학교의 교시 시각을 저장했어요.';
+    try { localStorage.setItem('opensigan-lesson-times:' + school.id, JSON.stringify(lessonTimes)); }
+    catch { lessonTimeState = '현재 화면에만 적용됐어요. 브라우저 저장소를 확인해 주세요.'; }
+  }
+  function clearLessonTimes() {
+    lessonTimeDrafts = {}; lessonTimes = {}; lessonTimeState = '교시 시각을 초기화했어요.';
+    if (school) { try { localStorage.removeItem('opensigan-lesson-times:' + school.id); } catch { /* 현재 화면에서 삭제했습니다. */ } }
+  }
 
   function toggleAllergy(id: number, checked: boolean) {
     allergySelection = checked ? [...new Set([...allergySelection, id])].sort((a, b) => a - b) : allergySelection.filter((value) => value !== id);
@@ -246,6 +276,9 @@
     selectedSubject = ''; selectedTeacher = ''; teacherQuery = '';
     try { displaySettings = parseDisplaySettings(JSON.parse(localStorage.getItem('opensigan-display:' + value.id) || 'null')); }
     catch { displaySettings = defaultDisplaySettings(); }
+    try { lessonTimes = parseLessonTimes(JSON.parse(localStorage.getItem('opensigan-lesson-times:' + value.id) || 'null')); }
+    catch { lessonTimes = {}; }
+    lessonTimeDrafts = { ...lessonTimes }; lessonTimeState = '';
     historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; historyRequestKey = '';
     neis = null; neisResults = []; neisSearchState = ''; neisLoading = false;
     meals = []; hasMeals = false; mealsStale = false; mealState = ''; mealLoading = false; mealDataKey = ''; mealRequestKey = '';
@@ -378,6 +411,7 @@
   }
   function refreshCalendar(refreshData = true) {
     const previousToday = today;
+    clockMinute = koreaClockMinutes(new Date());
     today = currentKoreaDate(new Date()); current = monday(today);
     const validWeek = clampWeek(week, current);
     if (selectedDay === previousToday) selectedDay = today;
@@ -593,7 +627,29 @@
           {:else if classError}<div class="state-message">반을 1부터 99까지의 정수로 입력해 주세요.</div>
           {:else if timetable && timetableView === 'today'}
             <div class="day-picker"><label for="today-date">날짜</label><input id="today-date" type="date" min={week} max={addDays(week, 6)} value={selectedDay} onchange={selectTimetableDate} /><span>{selectedDay === today ? '오늘' : dateText(selectedDay, { weekday: 'long' })}</span></div>
-             {#if dayRecords.some((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom))}<div class="lesson-list" aria-label="선택한 날짜 시간표">{#each dayRecords.filter((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom)).sort((a,b) => Number(a.period)-Number(b.period)) as item}<article><span class="lesson-period">{item.period}교시</span><strong style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && item.teacher}<span>{displayTeacher(item.teacher, displaySettings)}</span>{/if}{#if item.isChanged}<span class="change-label">변동</span>{/if}</article>{/each}</div>{:else}<div class="state-message"><strong>이 날짜의 시간표가 없어요</strong><p>다른 날짜를 선택하거나 주간 반 시간표를 확인해 주세요.</p></div>{/if}
+            {#if selectedClassLessons.length}
+              <div class="day-summary" aria-live="polite">
+                <span>총 {dayOverview.total}교시</span>
+                {#if dayOverview.changed}<span>변동 {dayOverview.changed}교시</span>{/if}
+                {#if selectedDay === today}
+                  {#if dayOverview.timed}
+                    <span>남은 수업 {dayOverview.remaining}교시</span>
+                    {#if dayOverview.current}<strong>현재 {dayOverview.current.period}교시 · {dayOverview.current.lessons.map((lesson) => displaySubject(lesson.subject, displaySettings)).join(' / ')}</strong>{:else if !dayOverview.next}<span>오늘 수업 종료</span>{/if}
+                    {#if dayOverview.next}<strong>다음 {dayOverview.next.period}교시 · {dayOverview.next.lessons.map((lesson) => displaySubject(lesson.subject, displaySettings)).join(' / ')} <small>{dayOverview.next.time.start} 시작</small></strong>{/if}
+                  {:else}<span>교시 시각 설정 후 현재·다음 수업을 볼 수 있어요.</span>{/if}
+                {/if}
+              </div>
+              <div class="lesson-list" aria-label="선택한 날짜 시간표">
+                {#each selectedClassLessons as item}
+                  <article class:active-lesson={dayOverview.timed && dayOverview.current?.period === Number(item.period)} class:completed-lesson={dayOverview.timed && lessonTimes[Number(item.period)] && Number(lessonTimes[Number(item.period)].end.slice(0, 2)) * 60 + Number(lessonTimes[Number(item.period)].end.slice(3)) <= clockMinute}>
+                    <span class="lesson-period">{item.period}교시{#if lessonTimes[Number(item.period)]}<small class="lesson-time">{lessonTimes[Number(item.period)].start}–{lessonTimes[Number(item.period)].end}</small>{/if}</span>
+                    <strong style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</strong>
+                    {#if displaySettings.showTeachers && item.teacher}<span>{displayTeacher(item.teacher, displaySettings)}</span>{/if}
+                    {#if item.isChanged}<span class="change-label">변동</span>{/if}
+                  </article>
+                {/each}
+              </div>
+            {:else}<div class="state-message"><strong>이 날짜의 시간표가 없어요</strong><p>다른 날짜를 선택하거나 주간 반 시간표를 확인해 주세요.</p></div>{/if}
           {:else if timetable && timetableView === 'grade'}
             <div class="day-picker"><label for="grade-date">비교 날짜</label><input id="grade-date" type="date" min={week} max={addDays(week, 6)} value={selectedDay} onchange={selectTimetableDate} /></div>
             {#if comparableClasses.length}
@@ -679,6 +735,21 @@
                  </label>
                </div>
                <p class="display-settings-hint">원본 시간표는 그대로 유지되며 이 학교의 표시 설정만 브라우저에 저장됩니다.</p>
+             </details>
+             <details class="lesson-time-settings">
+               <summary>학교 교시 시각 설정</summary>
+               <p class="display-settings-hint">학교에서 확인한 실제 시작·종료 시각을 입력해 주세요. 설정은 이 브라우저의 해당 학교에만 저장되며, 입력하지 않은 교시는 추측하지 않습니다.</p>
+               <div class="lesson-time-grid">
+                 {#each lessonTimePeriods as period}
+                   <div class="lesson-time-row">
+                     <strong>{period}교시</strong>
+                     <label>시작 <input type="time" aria-label={`${period}교시 시작`} value={lessonTimeDrafts[period]?.start ?? ''} oninput={(event) => editLessonTime(period, 'start', event.currentTarget.value)} /></label>
+                     <label>종료 <input type="time" aria-label={`${period}교시 종료`} value={lessonTimeDrafts[period]?.end ?? ''} oninput={(event) => editLessonTime(period, 'end', event.currentTarget.value)} /></label>
+                   </div>
+                 {/each}
+               </div>
+               <div class="lesson-time-actions"><button class="secondary-button" type="button" onclick={saveLessonTimes}>시각 저장</button><button class="secondary-button" type="button" onclick={clearLessonTimes}>시각 초기화</button></div>
+               {#if lessonTimeState}<p class="state-inline" role="status">{lessonTimeState}</p>{/if}
              </details>
            {/if}
           {#if timetable}<section class="history-section" aria-labelledby="history-title"><div class="history-heading"><div><h3 id="history-title">시간표 변경 이력</h3><p>이번 주 학교 시간표의 수집 변경 사항</p></div><button class="secondary-button" aria-expanded={historyOpen} aria-controls="history-list" onclick={toggleHistory}>{historyOpen ? '이력 닫기' : '이력 보기'}</button></div>{#if historyOpen}<div id="history-list">{#if historyDisabled}<p class="state-inline">변경 이력 저장이 아직 활성화되지 않았어요.</p>{:else if historyLoading && !historyChanges.length}<p class="state-inline" role="status">변경 이력을 불러오는 중…</p>{:else if historyError}<div class="notice" role="alert">{historyError} <button class="text-button" onclick={() => loadHistory()}>다시 시도</button></div>{:else if historyChanges.length}<ol class="history-list">{#each historyChanges as change}<li><div><strong>{change.grade}학년 {change.class}반 · {dateText(change.date)} · {change.period}교시</strong><span>{timeText(change.observedAt)} 확인 · {changeTypeText(change.type)}</span></div><p><span>{change.before ? `${change.before.subject}${change.before.teacher ? ` · ${change.before.teacher}` : ''}` : '수업 없음'}</span><span aria-hidden="true"> → </span><span>{change.after ? `${change.after.subject}${change.after.teacher ? ` · ${change.after.teacher}` : ''}` : '수업 없음'}</span></p></li>{/each}</ol>{#if historyCursor}<button class="secondary-button history-more" disabled={historyLoading} onclick={() => loadHistory(true)}>{historyLoading ? '불러오는 중…' : '이전 변경 더 보기'}</button>{:else}<p class="state-inline">표시할 변경 이력을 모두 불러왔습니다.</p>{/if}{:else if !historyLoading}<p class="state-inline">이번 주에 기록된 변경 이력이 없습니다.</p>{/if}</div>{/if}</section>{/if}

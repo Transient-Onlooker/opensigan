@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { createServer } from 'vite';
 import { personalizationVm } from './helpers/personalization-vm.js';
+import { lessonTimesVm } from './helpers/lesson-times-vm.js';
 
 const vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
 after(() => vite.close());
@@ -21,7 +22,7 @@ async function harness() {
   const calls = { neis: [], meals: [] };
   const pending = (list, args) => new Promise((resolve, reject) => list.push({ ...args, resolve, reject }));
   const app = runInNewContext(ts.transpile('(function(){' + body + '})()', { target: ts.ScriptTarget.ES2022 }), {
-    ...dates, ...matching, ...personalizationVm, currentKoreaDate: () => '2026-11-13',
+    ...dates, ...matching, ...personalizationVm, ...lessonTimesVm, currentKoreaDate: () => '2026-11-13',
     onMount() {}, document: { visibilityState: 'visible' },
     localStorage: { getItem: () => null, setItem() {} },
     getTimetable: () => new Promise(() => {}),
