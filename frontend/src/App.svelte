@@ -63,6 +63,7 @@
   let systemDark = false;
   let analyticsReady = false;
   let timetable: TimetableResponse | null = null;
+  let timetableFromDevice = false;
   let meals: Meal[] = [];
   let hasMeals = false;
   let mealsStale = false;
@@ -397,6 +398,7 @@
   }
   function loadTimetable(preserve = false, reuseCachedWeek = false, validateClass = false) {
     tableRequest?.abort(); if (!preserve) timetable = null; tableState = ''; tableLoading = false;
+    if (!preserve) timetableFromDevice = false;
     if (!preserve) timetableCheckedAt = '';
     if (!school) return;
     const key = `${school.id}\u0000${week}`;
@@ -404,6 +406,7 @@
       const cached = timetableWeeks.get(key);
       if (cached && cached.expires > Date.now()) {
         timetable = cached.data;
+        timetableFromDevice = false;
         if (validateClass) ensureAvailableClass();
         timetableRefreshAt = cached.expires;
         return;
@@ -416,18 +419,34 @@
       .then((data) => {
         if (controller.signal.aborted) return;
         timetable = data;
+        timetableFromDevice = false;
         if (validateClass) ensureAvailableClass();
         if (tableRefreshState === '갱신 중') {
           timetableCheckedAt = new Date().toISOString();
           tableRefreshState = data.stale ? '서버에 연결했어요. 저장된 시간표를 표시 중이에요.' : '새로고침 완료';
         }
         if (!data.stale) {
+          try { localStorage.setItem('opensigan-offline-timetable', JSON.stringify(data)); } catch { /* 오프라인 저장 없이 계속 사용합니다. */ }
           timetableWeeks.delete(key);
           timetableWeeks.set(key, { data, expires: Date.now() + refreshInterval });
           if (timetableWeeks.size > 4) timetableWeeks.delete(timetableWeeks.keys().next().value!);
         }
       })
-      .catch((error) => { if (!controller.signal.aborted) { tableState = errorText(error); if (tableRefreshState === '갱신 중') tableRefreshState = '새로고침 실패'; } })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        if (!timetable && navigator.onLine === false) {
+          try {
+            const saved = JSON.parse(localStorage.getItem('opensigan-offline-timetable') || 'null') as TimetableResponse | null;
+            if (saved && saved.schoolId === school?.id && saved.weekStart === week && Array.isArray(saved.records)) {
+              timetable = saved;
+              timetableFromDevice = true;
+              if (validateClass) ensureAvailableClass();
+            }
+          } catch { /* 저장된 시간표가 없으면 연결 오류를 표시합니다. */ }
+        }
+        if (!timetableFromDevice || navigator.onLine !== false) tableState = errorText(error);
+        if (tableRefreshState === '갱신 중') tableRefreshState = '새로고침 실패';
+      })
       .finally(() => { if (!controller.signal.aborted) tableLoading = false; });
   }
   async function loadHistory(append = false) {
@@ -796,7 +815,7 @@
             </div>
               {#if displaySettings.showChangeBadges}<p class="table-hint">‘변동’ 표시는 수업 정보 변경을 뜻해요.</p>{/if}
           {:else if !tableState}<div class="state-message"><strong>등록된 시간표가 없어요.</strong><p>학교와 학년·반을 확인해 주세요.</p></div>{/if}
-           {#if timetable}<div class="freshness" aria-live="polite">{#if timetable.stale}<span>저장된 시간표 · 최신 정보가 아닐 수 있어요</span>{/if}<span>원본 갱신 {timeText(timetable.sourceUpdatedAt)}</span></div>{/if}
+           {#if timetable}<div class="freshness" aria-live="polite">{#if timetableFromDevice}<span>오프라인 · 이 기기에 저장된 시간표</span>{:else if timetable.stale}<span>저장된 시간표 · 최신 정보가 아닐 수 있어요</span>{/if}<span>원본 갱신 {timeText(timetable.sourceUpdatedAt)}</span></div>{/if}
            {#if timetable?.records.length}<details class="dataset-details"><summary>수업 데이터 규모 · 학급 {observedClassCount}개 · 교사 이름 {teacherNames.length}개</summary><p>선택한 주에 수집된 수업 기록 기준입니다. 학교 전체 학급·교사 수가 아닐 수 있고, 교사 이름 누락이나 동명이인이 있으면 실제 인원과 다를 수 있어요.</p></details>{/if}
           {#if timetable}<section class="history-section" aria-labelledby="history-title"><div class="history-heading"><div><h3 id="history-title">시간표 변경 이력</h3><p>이번 주 학교 시간표의 수집 변경 사항</p></div><button class="secondary-button" aria-expanded={historyOpen} aria-controls="history-list" onclick={toggleHistory}>{historyOpen ? '이력 닫기' : '이력 보기'}</button></div>{#if historyOpen}<div id="history-list">{#if historyDisabled}<p class="state-inline">변경 이력 저장이 아직 활성화되지 않았어요.</p>{:else if historyLoading && !historyChanges.length}<p class="state-inline" role="status">변경 이력을 불러오는 중…</p>{:else if historyError}<div class="notice" role="alert">{historyError} <button class="text-button" onclick={() => loadHistory()}>다시 시도</button></div>{:else if historyChanges.length}<ol class="history-list">{#each historyChanges as change}<li><div><strong>{change.grade}학년 {change.class}반 · {dateText(change.date)} · {change.period}교시</strong><span>{timeText(change.observedAt)} 확인 · {changeTypeText(change.type)}</span></div><p><span>{change.before ? `${change.before.subject}${change.before.teacher ? ` · ${change.before.teacher}` : ''}` : '수업 없음'}</span><span aria-hidden="true"> → </span><span>{change.after ? `${change.after.subject}${change.after.teacher ? ` · ${change.after.teacher}` : ''}` : '수업 없음'}</span></p></li>{/each}</ol>{#if historyCursor}<button class="secondary-button history-more" disabled={historyLoading} onclick={() => loadHistory(true)}>{historyLoading ? '불러오는 중…' : '이전 변경 더 보기'}</button>{:else}<p class="state-inline">표시할 변경 이력을 모두 불러왔습니다.</p>{/if}{:else if !historyLoading}<p class="state-inline">이번 주에 기록된 변경 이력이 없습니다.</p>{/if}</div>{/if}</section>{/if}
         </section>

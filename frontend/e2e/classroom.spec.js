@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.describe('classroom navigation', () => {
+test.use({ serviceWorkers: 'block' });
 test('switching classes updates lessons, PNG and both links', async ({ page }) => {
   const school = { id: '2:봄빛고등학교', name: '봄빛고등학교', region: '서울' };
   await page.clock.setFixedTime(new Date('2026-11-09T02:00:00Z'));
@@ -60,4 +62,35 @@ test('switching classes updates lessons, PNG and both links', async ({ page }) =
   await panel.getByRole('button', { name: '이번 주', exact: true }).click();
   await expect(weekTable.getByText('샘플 과학', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize().width);
+});
+});
+
+test('the installed shell reloads offline and only restores the matching week', async ({ context, page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Playwright WebKit does not consistently emulate service-worker offline requests on Windows.');
+  const school = { id: '2:봄빛고등학교', name: '봄빛고등학교', region: '서울' };
+  const week = '2026-11-09';
+  await page.clock.setFixedTime(new Date('2026-11-09T02:00:00Z'));
+  await page.route('**/api/v1/**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({ json: path === '/api/v1/timetable' ? {
+      schoolId: school.id, weekStart: week, fetchedAt: '2026-11-09T01:00:00Z', sourceUpdatedAt: null, stale: false,
+      records: [{ grade: 1, class: 1, date: week, period: 1, subject: '오프라인 수학', teacher: null, isChanged: false }],
+    } : { schools: path === '/api/v1/schools' ? [school] : [], stale: false } });
+  });
+  await page.goto('/');
+  await page.getByRole('searchbox', { name: '학교 찾기' }).fill('봄빛');
+  await page.getByRole('button', { name: /봄빛고등학교/ }).click();
+  await expect(page.getByRole('table').getByText('오프라인 수학')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await page.unroute('**/api/v1/**');
+  await page.route('**/api/v1/**', (route) => route.abort('internetdisconnected'));
+  await context.setOffline(true);
+  const navigation = await page.goto('/?offline=1');
+  expect(navigation.fromServiceWorker()).toBe(true);
+  await expect(page.getByRole('heading', { name: school.name })).toBeVisible();
+  await expect(page.getByText('오프라인 · 이 기기에 저장된 시간표')).toBeVisible();
+  await expect(page.getByRole('table').getByText('오프라인 수학')).toBeVisible();
+  await page.getByRole('button', { name: '다음 주' }).click();
+  await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(page.getByText('오프라인 · 이 기기에 저장된 시간표')).toHaveCount(0);
 });

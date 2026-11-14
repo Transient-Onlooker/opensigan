@@ -23,6 +23,9 @@ class PreviewHandler(Handler, SimpleHTTPRequestHandler):
             self.path = "/index.html"
         elif path in {"/api-docs.html", "/openapi.yaml", "/analytics.html", "/opensigan/api-docs.html", "/opensigan/openapi.yaml", "/opensigan/analytics.html"}:
             self.path = path.removeprefix("/opensigan")
+        elif path in {"/service-worker.js", "/site.webmanifest", "/icon-192.png", "/icon-512.png",
+                      "/favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png"}:
+            self.path = path
         elif re.fullmatch(r"/(?:opensigan/)?assets/[\w-][\w.-]*", path):
             self.path = path.removeprefix("/opensigan")
         else:
