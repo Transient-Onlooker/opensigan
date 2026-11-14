@@ -133,12 +133,14 @@ def _dispatch_request(method, path, query_string, cache_instance=None, client=No
         headers["Vary"] = "Origin"
     if origin and (request_origin is None or request_origin in [item.strip() for item in origin.split(",")]):
         headers["Access-Control-Allow-Origin"] = request_origin or origin.split(",")[0].strip()
-        headers["Access-Control-Expose-Headers"] = "Retry-After"
+        headers["Access-Control-Expose-Headers"] = "Retry-After, ETag" if path == "/api/v1/timetable.ics" else "Retry-After"
 
     if method == "OPTIONS":
         headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST, OPTIONS"
-        headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        headers["Access-Control-Expose-Headers"] = "Retry-After"
+        headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, If-None-Match" if path == "/api/v1/timetable.ics"
+            else "Content-Type, Authorization"
+        )
         headers["Content-Length"] = "0"
         return 204, headers, b""
 

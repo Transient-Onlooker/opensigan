@@ -20,6 +20,17 @@ class PublicApiTests(unittest.TestCase):
             _, headers, _ = dispatch_request('OPTIONS', '/api/v1/schools', '', request_origin='https://example.test')
             self.assertEqual(headers['Access-Control-Allow-Origin'], 'https://example.test')
 
+    def test_calendar_conditional_headers_are_available_to_allowed_origins(self):
+        path = '/api/v1/timetable.ics'
+        with patch.dict('os.environ', {'ALLOWED_ORIGIN': 'https://example.test'}):
+            status, headers, _ = dispatch_request('OPTIONS', path, '', request_origin='https://example.test')
+            self.assertEqual(status, 204)
+            self.assertIn('If-None-Match', headers['Access-Control-Allow-Headers'])
+            _, headers, _ = dispatch_request('GET', path, '', request_origin='https://example.test')
+            self.assertIn('ETag', headers['Access-Control-Expose-Headers'])
+            _, headers, _ = dispatch_request('GET', path, '', request_origin='https://other.test')
+            self.assertNotIn('Access-Control-Expose-Headers', headers)
+
     def test_rate_limit_and_error_contract(self):
         for _ in range(60):
             status, _, _ = dispatch_request('GET', '/api/v1/schools', '', client='client')
