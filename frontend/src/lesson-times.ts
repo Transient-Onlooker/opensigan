@@ -45,10 +45,11 @@ export function dailyLessonOverview(records: TimetableRecord[], times: LessonTim
     const entry = times[period];
     return entry && minutes(entry.start) !== null && minutes(entry.end) !== null;
   });
-  if (!hasTimes) return { total: periods.length, changed, timed: false, current: null, next: null, remaining: null };
+  if (!hasTimes) return { total: periods.length, changed, timed: false, current: null, next: null, remaining: null, completed: [] as number[] };
   const current = periods.find((period) => minutes(times[period].start)! <= nowMinute && nowMinute < minutes(times[period].end)!);
   const next = periods.find((period) => minutes(times[period].start)! > nowMinute);
   const remaining = periods.filter((period) => minutes(times[period].end)! > nowMinute).length;
+  const completed = periods.filter((period) => minutes(times[period].end)! <= nowMinute);
   const label = (period: number | undefined) => period === undefined ? null : ({ period, lessons: groups.get(period) ?? [], time: times[period] });
-  return { total: periods.length, changed, timed: true, current: label(current), next: label(next), remaining };
+  return { total: periods.length, changed, timed: true, current: label(current), next: label(next), remaining, completed };
 }

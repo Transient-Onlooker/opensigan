@@ -138,6 +138,7 @@ label{font-size:14px;font-weight:650}
 .timetable thead th.today-column{background:var(--ink);color:var(--surface)}
 .timetable thead th.today-column small{color:inherit}
 .timetable td.today-column{background:var(--soft)}
+.timetable th.other-day,.timetable td.other-day{opacity:.72}
 .timetable td.changed{outline:2px dashed var(--ink);outline-offset:-3px}
 .class-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;overflow-wrap:anywhere;line-height:1.45}
 .class-cell strong{font-size:16px;font-weight:750}

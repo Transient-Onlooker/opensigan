@@ -10,6 +10,15 @@ const helpers = {};
 runInNewContext(compiled, { exports: helpers });
 const { defaultDisplaySettings, parseDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor } = helpers;
 
+test('ended lesson and other weekday visibility settings default safely and parse saved choices', () => {
+  assert.equal(defaultDisplaySettings().endedLessonMode, 'dim');
+  assert.equal(defaultDisplaySettings().dimOtherDays, false);
+  assert.equal(parseDisplaySettings({ endedLessonMode: 'hide', dimOtherDays: true }).endedLessonMode, 'hide');
+  assert.equal(parseDisplaySettings({ endedLessonMode: 'normal' }).endedLessonMode, 'normal');
+  assert.equal(parseDisplaySettings({ endedLessonMode: 'invalid', dimOtherDays: 'true' }).endedLessonMode, 'dim');
+  assert.equal(parseDisplaySettings({ endedLessonMode: 'invalid', dimOtherDays: 'true' }).dimOtherDays, false);
+});
+
 test('default settings keep monochrome and original labels', () => {
   const settings = defaultDisplaySettings();
   assert.equal(settings.colorMode, 'none');

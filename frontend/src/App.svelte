@@ -90,6 +90,7 @@
   $: dayRecords = (timetable?.records ?? []).filter((r) => r.date === selectedDay);
   $: selectedClassLessons = dayRecords.filter((r) => Number(r.grade) === Number(grade) && Number(r.class) === Number(classroom)).sort((a, b) => Number(a.period) - Number(b.period));
   $: dayOverview = dailyLessonOverview(selectedClassLessons, lessonTimes, clockMinute, selectedDay === today);
+  $: shownClassLessons = displaySettings.endedLessonMode === 'hide' ? selectedClassLessons.filter((item) => !dayOverview.completed.includes(Number(item.period))) : selectedClassLessons;
   $: comparableClasses = [...new Set(dayRecords.filter((r) => Number(r.grade) === Number(grade)).map((r) => Number(r.class)))].sort((a, b) => a - b);
   $: gradeRecords = dayRecords.filter((r) => Number(r.grade) === Number(grade));
   $: teacherNames = [...new Set((timetable?.records ?? []).map((r) => r.teacher?.trim()).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b, 'ko-KR'));
@@ -640,8 +641,8 @@
                 {/if}
               </div>
               <div class="lesson-list" aria-label="선택한 날짜 시간표">
-                {#each selectedClassLessons as item}
-                  <article class:active-lesson={dayOverview.timed && dayOverview.current?.period === Number(item.period)} class:completed-lesson={dayOverview.timed && lessonTimes[Number(item.period)] && Number(lessonTimes[Number(item.period)].end.slice(0, 2)) * 60 + Number(lessonTimes[Number(item.period)].end.slice(3)) <= clockMinute}>
+                {#each shownClassLessons as item}
+                  <article class:active-lesson={dayOverview.current?.period === Number(item.period)} class:completed-lesson={displaySettings.endedLessonMode === 'dim' && dayOverview.completed.includes(Number(item.period))}>
                     <span class="lesson-period">{item.period}교시{#if lessonTimes[Number(item.period)]}<small class="lesson-time">{lessonTimes[Number(item.period)].start}–{lessonTimes[Number(item.period)].end}</small>{/if}</span>
                     <strong style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</strong>
                     {#if displaySettings.showTeachers && item.teacher}<span>{displayTeacher(item.teacher, displaySettings)}</span>{/if}
@@ -649,6 +650,7 @@
                   </article>
                 {/each}
               </div>
+              {#if !shownClassLessons.length}<p class="state-inline" role="status">종료된 수업을 모두 숨겼어요. 표시 설정에서 다시 볼 수 있어요.</p>{/if}
             {:else}<div class="state-message"><strong>이 날짜의 시간표가 없어요</strong><p>다른 날짜를 선택하거나 주간 반 시간표를 확인해 주세요.</p></div>{/if}
           {:else if timetable && timetableView === 'grade'}
             <div class="day-picker"><label for="grade-date">비교 날짜</label><input id="grade-date" type="date" min={week} max={addDays(week, 6)} value={selectedDay} onchange={selectTimetableDate} /></div>
@@ -675,14 +677,14 @@
                 <p class="table-hint">{displayTeacher(selectedTeacherName, displaySettings)} 선생님 · 이번 주 수업 (동명이인은 원본 시간표에서 구분할 수 없어요.)</p>
                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <div class="table-scroll" tabindex="0" role="region" aria-label={`${displayTeacher(selectedTeacherName, displaySettings)} 선생님 주간 시간표`}>
-                  <table class="timetable teacher-table"><caption class="sr-only">{displayTeacher(selectedTeacherName, displaySettings)} 선생님 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each teacherDates as date}<th scope="col"><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}</small></th>{/each}</tr></thead><tbody>{#each teacherPeriods as period}<tr><th scope="row">{period}교시</th>{#each teacherDates as date}<td>{#each selectedTeacherRecords.filter((r) => r.date === date && Number(r.period) === period) as item}<div class="class-cell"><strong>{item.grade}학년 {item.class}반</strong><span style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</span></div>{:else}<span class="empty-cell">—</span>{/each}</td>{/each}</tr>{/each}</tbody></table>
+                  <table class="timetable teacher-table"><caption class="sr-only">{displayTeacher(selectedTeacherName, displaySettings)} 선생님 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each teacherDates as date}<th scope="col" class:other-day={displaySettings.dimOtherDays && week === current && date !== today}><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}</small></th>{/each}</tr></thead><tbody>{#each teacherPeriods as period}<tr><th scope="row">{period}교시</th>{#each teacherDates as date}<td class:other-day={displaySettings.dimOtherDays && week === current && date !== today}>{#each selectedTeacherRecords.filter((r) => r.date === date && Number(r.period) === period) as item}<div class="class-cell"><strong>{item.grade}학년 {item.class}반</strong><span style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</span></div>{:else}<span class="empty-cell">—</span>{/each}</td>{/each}</tr>{/each}</tbody></table>
                </div>
              {:else if teacherQuery.trim() && !teacherSuggestions.length}<div class="state-message"><strong>검색된 교사가 없어요</strong><p>다른 이름을 입력해 주세요.</p></div>{:else}<p class="table-hint">목록에서 이름을 고르면 월~금 시간표가 표시돼요.</p>{/if}
           {:else if timetable && timetableView === 'week' && filtered.length}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
             <div class="table-scroll" tabindex="0" role="region" aria-label="주간 시간표, 좌우로 스크롤 가능">
-              <table class="timetable"><caption class="sr-only">{school.name} {grade}학년 {classroom}반 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}{date === today ? ' · 오늘' : ''}</small></th>{/each}</tr></thead>
-                 <tbody>{#each periods as period}<tr><th scope="row">{period}<span class="sr-only">교시</span></th>{#each dates as date}{@const lessons = slotLessons(filtered, date, period)}<td class:today-column={date === today} class:changed={lessons.some((lesson) => lesson.isChanged)}>{#each lessons as lesson}<div class="class-cell"><strong style={subjectStyle(lesson.subject)}>{displaySubject(lesson.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && lesson.teacher}<span>{displayTeacher(lesson.teacher, displaySettings)}</span>{/if}{#if lesson.isChanged}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell" aria-label="수업 없음">—</span>{/each}</td>{/each}</tr>{/each}</tbody>
+              <table class="timetable"><caption class="sr-only">{school.name} {grade}학년 {classroom}반 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} class:other-day={displaySettings.dimOtherDays && week === current && date !== today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}{date === today ? ' · 오늘' : ''}</small></th>{/each}</tr></thead>
+                 <tbody>{#each periods as period}<tr><th scope="row">{period}<span class="sr-only">교시</span></th>{#each dates as date}{@const lessons = slotLessons(filtered, date, period)}<td class:today-column={date === today} class:other-day={displaySettings.dimOtherDays && week === current && date !== today} class:changed={lessons.some((lesson) => lesson.isChanged)}>{#each lessons as lesson}<div class="class-cell"><strong style={subjectStyle(lesson.subject)}>{displaySubject(lesson.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && lesson.teacher}<span>{displayTeacher(lesson.teacher, displaySettings)}</span>{/if}{#if lesson.isChanged}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell" aria-label="수업 없음">—</span>{/each}</td>{/each}</tr>{/each}</tbody>
               </table>
             </div>
              <p class="table-hint">‘변동’ 표시는 수업 정보 변경을 뜻해요.</p>
@@ -719,6 +721,12 @@
                    <button type="button" class="secondary-button display-reset" onclick={clearSubjectColors}>과목 색상 초기화</button>
                  {/if}
                  <label class="display-toggle"><input type="checkbox" checked={displaySettings.showTeachers} onchange={(event) => saveDisplaySettings({ ...displaySettings, showTeachers: event.currentTarget.checked })} /> 시간표에 교사 표시</label>
+                 <label>종료된 수업 표시
+                   <select value={displaySettings.endedLessonMode} onchange={(event) => saveDisplaySettings({ ...displaySettings, endedLessonMode: event.currentTarget.value as DisplaySettings['endedLessonMode'] })}>
+                     <option value="dim">흐리게 표시</option><option value="hide">숨기기</option><option value="normal">그대로 표시</option>
+                   </select>
+                 </label>
+                 <label class="display-toggle"><input type="checkbox" checked={displaySettings.dimOtherDays} onchange={(event) => saveDisplaySettings({ ...displaySettings, dimOtherDays: event.currentTarget.checked })} /> 이번 주 오늘 외 요일 흐리게 표시</label>
                  <label>교사 선택
                    <select bind:value={selectedTeacher} disabled={!teacherNames.length}>
                      <option value="">교사를 선택하세요</option>{#each teacherNames as teacher}<option value={teacher}>{teacher}</option>{/each}

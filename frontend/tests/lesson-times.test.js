@@ -18,6 +18,14 @@ const records = [
 ];
 const times = { 1: { start: '09:00', end: '09:50' }, 2: { start: '10:00', end: '10:50' }, 3: { start: '13:00', end: '13:50' } };
 
+test('completed periods are distinct, boundary-aware, and unavailable without verified times', () => {
+  assert.deepEqual(Array.from(dailyLessonOverview(records, times, 10 * 60 + 20, true).completed), [1]);
+  assert.deepEqual(Array.from(dailyLessonOverview(records, times, 10 * 60 + 50, true).completed), [1, 2]);
+  assert.deepEqual(Array.from(dailyLessonOverview(records, times, 14 * 60, true).completed), [1, 2, 3]);
+  assert.equal(dailyLessonOverview(records, { 1: times[1] }, 14 * 60, true).completed.length, 0);
+  assert.equal(dailyLessonOverview(records, times, 14 * 60, false).completed.length, 0);
+});
+
 test('교시별 수업 시각은 형식·선후·중복을 검증해 로드한다', () => {
   assert.equal(Object.keys(parseLessonTimes({ ...times, 4: { start: '25:00', end: '26:00' } })).length, 3);
   assert.equal(Object.keys(parseLessonTimes({ ...times, 2: { start: '09:30', end: '10:00' } })).length, 0);

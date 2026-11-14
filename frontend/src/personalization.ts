@@ -2,6 +2,8 @@ export type ColorMode = 'none' | 'auto' | 'custom';
 
 export interface DisplaySettings {
   colorMode: ColorMode;
+  endedLessonMode: 'dim' | 'hide' | 'normal';
+  dimOtherDays: boolean;
   subjectColors: Record<string, string>;
   subjectAliases: Record<string, string>;
   teacherAliases: Record<string, string>;
@@ -11,7 +13,7 @@ export interface DisplaySettings {
 }
 
 export function defaultDisplaySettings(): DisplaySettings {
-  return { colorMode: 'none', subjectColors: {}, subjectAliases: {}, teacherAliases: {}, teacherPrefix: '', teacherSuffix: '', showTeachers: true };
+  return { colorMode: 'none', endedLessonMode: 'dim', dimOtherDays: false, subjectColors: {}, subjectAliases: {}, teacherAliases: {}, teacherPrefix: '', teacherSuffix: '', showTeachers: true };
 }
 
 function textMap(value: unknown, maxLength: number): Record<string, string> {
@@ -28,6 +30,8 @@ export function parseDisplaySettings(value: unknown): DisplaySettings {
   const colors = textMap(saved.subjectColors, 7);
   return {
     colorMode: saved.colorMode === 'auto' || saved.colorMode === 'custom' ? saved.colorMode : 'none',
+    endedLessonMode: saved.endedLessonMode === 'hide' || saved.endedLessonMode === 'normal' ? saved.endedLessonMode : 'dim',
+    dimOtherDays: saved.dimOtherDays === true,
     subjectColors: Object.fromEntries(Object.entries(colors).filter(([, color]) => /^#[0-9a-fA-F]{6}$/.test(color))),
     subjectAliases: textMap(saved.subjectAliases, 60),
     teacherAliases: textMap(saved.teacherAliases, 60),
