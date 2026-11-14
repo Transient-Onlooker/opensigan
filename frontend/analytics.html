@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta name="robots" content="noindex,nofollow"><title>이용 통계 · Opencigan</title></head>
+<body>
+<main>
+<header><a href="./">&lt;/&gt; Opencigan</a><h1>이용 통계</h1><p>방문자는 브라우저 기준 추정치입니다. 실제 사람 수와 다를 수 있습니다.</p></header>
+<form id="login">
+<label>관리자 토큰<input id="token" type="password" autocomplete="off" required maxlength="512"></label>
+<label>조회 기간<select id="days"><option value="7">최근 7일</option><option value="30" selected>최근 30일</option><option value="90">최근 90일</option></select></label>
+<button id="load" type="submit">조회 / 새로고침</button><button id="clear" type="button">잠금</button>
+</form>
+<p id="state" role="status" aria-live="polite">토큰은 저장하지 않으며 이 화면에서만 사용합니다.</p>
+<section id="results" hidden aria-label="이용 현황">
+<div id="metrics" class="metrics"></div>
+<h2>일별 이용</h2><div class="scroll" tabindex="0" role="region" aria-label="일별 통계 표"><table><thead><tr><th scope="col">날짜 (한국)</th><th scope="col">방문자</th><th scope="col">세션</th><th scope="col">페이지 조회</th><th scope="col">API 요청</th></tr></thead><tbody id="daily"></tbody></table></div>
+<h2>API 경로별 이용</h2><div class="scroll" tabindex="0" role="region" aria-label="경로별 통계 표"><table><thead><tr><th scope="col">경로</th><th scope="col">요청</th><th scope="col">오류</th><th scope="col">평균 (ms)</th></tr></thead><tbody id="routes"></tbody></table></div>
+<p>API 수치는 비동기 기록으로 잠시 늦게 반영됩니다. 상태 확인·분석 요청 자체는 제외합니다. 수집을 거부한 방문은 방문자 집계에 포함되지 않습니다.</p>
+</section>
+</main><script type="module" src="/src/admin.ts"></script>
+</body></html>

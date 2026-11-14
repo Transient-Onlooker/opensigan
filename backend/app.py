@@ -15,10 +15,12 @@ from urllib.parse import parse_qs, urlsplit
 
 from backend.cache import Cache
 from backend.analytics import ApiRecorder
+from backend.shutter import Shutter
 from backend.neis import NEISClient, School
 from backend.timetable import fetch_timetable, search_schools, validate_timetable_week
 
 cache = Cache()
+shutter = Shutter.from_environment()
 logger = logging.getLogger("opensigan")
 _rate_lock = threading.Lock()
 _rate_clients = OrderedDict()
@@ -83,7 +85,7 @@ def _read_request_body(stream, content_length):
     return stream.read(length) if stream is not None else b""
 
 
-def _dispatch_request(method, path, query_string, cache_instance=None, client=None, request_origin=None, request_body=None, request_headers=None):
+def _dispatch_request(method, path, query_string, cache_instance=None, client=None, request_origin=None, request_body=None, request_headers=None, shutter_instance=None):
     current_cache = cache if cache_instance is None else cache_instance
     origin = os.environ.get("ALLOWED_ORIGIN", "")
 
@@ -103,6 +105,14 @@ def _dispatch_request(method, path, query_string, cache_instance=None, client=No
         headers["Access-Control-Expose-Headers"] = "Retry-After"
         headers["Content-Length"] = "0"
         return 204, headers, b""
+
+    if path not in ("/api/v1/status", "/api/v1/admin/analytics"):
+        allowed, retry_after = (shutter if shutter_instance is None else shutter_instance).check()
+        if not allowed:
+            body = json.dumps({"error": "요청이 집중되어 일시적으로 중단되었습니다. 잠시 후 다시 시도해 주세요.", "code": "service_overloaded", "retry_after": retry_after}, ensure_ascii=False).encode("utf-8")
+            headers["Retry-After"] = str(retry_after)
+            headers["Content-Length"] = str(len(body))
+            return 503, headers, body
 
     if path == "/api/v1/analytics/pageview":
         if method != "POST":
@@ -321,9 +331,9 @@ def _dispatch_request(method, path, query_string, cache_instance=None, client=No
 _api_recorder = ApiRecorder(_analytics_store)
 
 
-def dispatch_request(method, path, query_string, cache_instance=None, client=None, request_origin=None, request_body=None, request_headers=None):
+def dispatch_request(method, path, query_string, cache_instance=None, client=None, request_origin=None, request_body=None, request_headers=None, shutter_instance=None):
     started = time.perf_counter()
-    response = _dispatch_request(method, path, query_string, cache_instance, client, request_origin, request_body, request_headers)
+    response = _dispatch_request(method, path, query_string, cache_instance, client, request_origin, request_body, request_headers, shutter_instance)
     if method in ("GET", "HEAD") and path in ("/api/v1/schools", "/api/v1/neis/schools", "/api/v1/timetable", "/api/v1/timetable/history", "/api/v1/meals") and os.environ.get("OPENCIGAN_ANALYTICS_DB"):
         _api_recorder.submit(path, method, response[0], (time.perf_counter() - started) * 1000)
     return response

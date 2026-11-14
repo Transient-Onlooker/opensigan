@@ -17,6 +17,88 @@ tags:
   - name: Meals
   - name: History
 paths:
+  /api/v1/analytics/pageview:
+    post:
+      tags: [System]
+      summary: Record a pseudonymous first-party page view
+      description: Optional analytics. Maximum body size 4096 bytes. Separate 60/minute client limit. Does not record school, class, raw identifiers, IP or User-Agent in the analytics database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visitorId, sessionId, page]
+              properties:
+                visitorId: { type: string, format: uuid, description: Canonical lowercase UUID version 4. }
+                sessionId: { type: string, format: uuid, description: Canonical lowercase UUID version 4. }
+                page: { type: string, enum: ['/', '/timetable', '/meals'] }
+      responses:
+        '202':
+          description: Page view stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted]
+                properties:
+                  accepted: { const: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { description: Body exceeds 4096 bytes. }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { description: Analytics disabled or storage temporarily unavailable. }
+  /api/v1/admin/analytics:
+    get:
+      tags: [System]
+      summary: Read private usage statistics
+      description: Browser-based visitor estimates; not an exact person count. API telemetry is asynchronous and may lose events during overload or shutdown. Excludes health checks and preflight requests. Responses use Cache-Control no-store.
+      security: [{ AnalyticsAdmin: [] }]
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+      responses:
+        '200':
+          description: Aggregate statistics in Asia/Seoul dates.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [periodDays, visitors, sessions, pageViews, apiRequests, apiErrors, apiErrorRate, apiAverageMs, droppedApiEvents, daily, routes]
+                properties:
+                  periodDays: { type: integer, minimum: 1, maximum: 90 }
+                  visitors: { type: integer, minimum: 0 }
+                  sessions: { type: integer, minimum: 0 }
+                  pageViews: { type: integer, minimum: 0 }
+                  apiRequests: { type: integer, minimum: 0 }
+                  apiErrors: { type: integer, minimum: 0 }
+                  apiErrorRate: { type: number, minimum: 0, maximum: 1 }
+                  apiAverageMs: { type: number, minimum: 0 }
+                  droppedApiEvents: { type: integer, minimum: 0, description: Process-local count since startup. }
+                  daily:
+                    type: array
+                    items:
+                      type: object
+                      required: [day, visitors, sessions, page_views, api_requests]
+                      properties:
+                        day: { type: string, format: date }
+                        visitors: { type: integer, minimum: 0 }
+                        sessions: { type: integer, minimum: 0 }
+                        page_views: { type: integer, minimum: 0 }
+                        api_requests: { type: integer, minimum: 0 }
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      required: [route, requests, errors, avg_ms]
+                      properties:
+                        route: { type: string }
+                        requests: { type: integer, minimum: 0 }
+                        errors: { type: integer, minimum: 0 }
+                        avg_ms: { type: number, minimum: 0 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: Missing or incorrect bearer token. }
+        '503': { description: Analytics disabled or storage temporarily unavailable. }
   /api/v1/status:
     get:
       tags: [System]
@@ -190,6 +272,11 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/UpstreamUnavailable' }
 components:
+  securitySchemes:
+    AnalyticsAdmin:
+      type: http
+      scheme: bearer
+      description: Separate server-side OPENCIGAN_ANALYTICS_ADMIN_TOKEN. Never embed it in the frontend bundle.
   schemas:
     Error:
       type: object

@@ -52,6 +52,14 @@ journalctl --user -u opensigan-preview -n 30 --no-pager
 
 ## 공개 전 체크리스트
 
+## 자동 셔터와 통계
+
+Pi 작업 폴더에만 있던 `backend/shutter.py`와 회귀 검증을 저장소에 통합했습니다. 프로세스별 기본 임계치는 60초에 600요청 또는 1분 load average 8이며, 초과 시 30초 동안 `503 service_overloaded`와 `Retry-After`를 반환합니다. `SHUTTER_MAX_REQUESTS`, `SHUTTER_WINDOW_SECONDS`, `SHUTTER_COOLDOWN_SECONDS`, `SHUTTER_MAX_LOAD`로 조절합니다. 요청량·부하 조건은 각각 0이면 비활성화되며, load average가 없는 OS에서는 부하 조건을 적용하지 않습니다. 상태 확인과 인증을 요구하는 관리자 통계는 셔터 중에도 조회할 수 있습니다. OPTIONS는 셔터에 포함되지 않습니다. 프로세스별 제한이므로 전체 서비스 합산 제한은 아닙니다.
+
+통계 설정과 운영 지표의 의미는 [이용 통계](analytics.md)를 참고하세요. 내부망 서버는 최신 `/assets/...` 경로와 기존 `/opensigan/assets/...` 경로를 모두 제공합니다.
+
+## 공개 전 체크리스트
+
 - [ ] 원본 컴시간 데이터의 이용 조건·저장·재제공 범위 확인
 - [ ] 프록시/Tunnel 뒤 실제 클라이언트 식별과 60회/60초 요청 제한의 상호작용 검증
 - [ ] LAN과 외부 접속에서 캐시 HIT/MISS 및 오류 상황 실측

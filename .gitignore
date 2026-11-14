@@ -7,3 +7,4 @@ frontend/public/openapi.yaml
 .env
 .env.*
 !.env.example
+data/*.sqlite3*
