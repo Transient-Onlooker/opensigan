@@ -6,6 +6,8 @@
   import { shareClassUrl, readSharedClass, findLessons } from './sharing';
   import { allergens, allergenMatches } from './allergens';
   import { saveTimetablePng } from './export-png';
+  import { slotLessons } from './timetable-slots';
+  import { defaultDisplaySettings, parseDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor, type ColorMode, type DisplaySettings } from './personalization';
   import { apiNotConfigured, getMeals, getTimetable, getTimetableHistory, searchSchools, searchNeisSchools, timetableSubscriptionUrl, type Meal, type NeisSchool, type School, type TimetableRecord, type TimetableResponse, type TimetableChange } from './api';
 
   type Favorite = { school: School; grade: number; classroom: number };
@@ -22,6 +24,9 @@
   let view: 'timetable' | 'meals' = 'timetable';
   let timetableView: 'today' | 'week' | 'grade' | 'teacher' = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 700px)').matches ? 'today' : 'week';
   let teacherQuery = '';
+  let displaySettings: DisplaySettings = defaultDisplaySettings();
+  let selectedSubject = '';
+  let selectedTeacher = '';
   let allergySelection: number[] = [];
   let tableRefreshState = '';
   let exportState = '';
@@ -41,7 +46,8 @@
   let mealDate = today;
   let mealView: 'day' | 'week' = 'day';
   let dateError = '';
-  let theme: 'light' | 'dark' = 'light';
+  let theme: 'light' | 'dark' | 'system' = 'light';
+  let systemDark = false;
   let analyticsReady = false;
   let timetable: TimetableResponse | null = null;
   let meals: Meal[] = [];
@@ -77,11 +83,14 @@
   $: comparableClasses = [...new Set(dayRecords.filter((r) => Number(r.grade) === Number(grade)).map((r) => Number(r.class)))].sort((a, b) => a - b);
   $: gradeRecords = dayRecords.filter((r) => Number(r.grade) === Number(grade));
   $: teacherNames = [...new Set((timetable?.records ?? []).map((r) => r.teacher?.trim()).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b, 'ko-KR'));
-  $: teacherSuggestions = teacherNames.filter((name) => name.toLocaleLowerCase('ko-KR').includes(teacherQuery.trim().toLocaleLowerCase('ko-KR')));
-  $: selectedTeacherRecords = teacherNames.includes(teacherQuery.trim()) ? (timetable?.records ?? []).filter((r) => r.teacher?.trim() === teacherQuery.trim()) : [];
+  $: subjectNames = [...new Set((timetable?.records ?? []).map((r) => r.subject?.trim()).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  $: teacherSuggestions = teacherNames.filter((name) => [name, displayTeacher(name, displaySettings)].some((label) => label.toLocaleLowerCase('ko-KR').includes(teacherQuery.trim().toLocaleLowerCase('ko-KR'))));
+  $: selectedTeacherName = teacherNames.find((name) => name === teacherQuery.trim() || displayTeacher(name, displaySettings) === teacherQuery.trim()) ?? '';
+  $: selectedTeacherRecords = selectedTeacherName ? (timetable?.records ?? []).filter((r) => r.teacher?.trim() === selectedTeacherName) : [];
   $: teacherPeriods = Array.from({ length: Math.max(0, ...selectedTeacherRecords.map((r) => Number(r.period))) }, (_, i) => i + 1);
   $: teacherDates = Array.from({ length: 5 }, (_, i) => addDays(week, i));
-  $: gradeOptions = school && /(?:중학교|고등학교)/.test(school.name) ? [1, 2, 3] : [1, 2, 3, 4, 5, 6];
+  $: availableGrades = gradesInTimetable(timetable?.records ?? [], school && /(?:중학교|고등학교)/.test(school.name) ? 3 : 6);
+  $: gradeOptions = availableGrades.length ? availableGrades : school && /(?:중학교|고등학교)/.test(school.name) ? [1, 2, 3] : [1, 2, 3, 4, 5, 6];
   $: availableClasses = [...new Set((timetable?.records ?? []).filter((r) => Number(r.grade) === Number(grade)).map((r) => Number(r.class)).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
   $: weekendClasses = filtered.some((r) => r.date === addDays(week, 5) || r.date === addDays(week, 6));
   $: dates = Array.from({ length: weekendClasses ? 7 : 5 }, (_, i) => addDays(week, i));
@@ -90,6 +99,7 @@
   $: mealDates = Array.from({ length: 7 }, (_, index) => addDays(monday(mealDate), index));
   $: matchingLessons = lessonQuery.trim() || lessonWeekday ? findLessons(filtered, lessonQuery, lessonWeekday) : [];
   $: currentFavorite = favorites.some((item) => item.school.id === school?.id && item.grade === Number(grade) && item.classroom === Number(classroom));
+  $: isDark = themeIsDark(theme, systemDark);
   $: if (analyticsReady) trackPageView(view === 'meals' ? '/meals' : '/timetable');
 
   function dateText(key: string, options: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric' }) {
@@ -105,8 +115,41 @@
   }
   function changeTypeText(type: string) { return type === 'added' ? '추가' : type === 'deleted' ? '삭제' : type === 'changed' ? '변경' : type; }
   function errorText(error: unknown) { return error instanceof Error ? error.message : '요청을 완료하지 못했어요.'; }
-  function record(date: string, period: number): TimetableRecord | undefined { return filtered.find((r) => r.date === date && Number(r.period) === period); }
   function neisKey(id: string) { return 'opensigan-neis:' + id; }
+
+  function themeIsDark(preference: 'light' | 'dark' | 'system', prefersDark: boolean) {
+    return preference === 'dark' || (preference === 'system' && prefersDark);
+  }
+
+  function gradesInTimetable(records: TimetableRecord[], maxGrade: number) {
+    return [...new Set(records.map((record) => Number(record.grade))
+      .filter((value) => Number.isInteger(value) && value >= 1 && value <= maxGrade))].sort((a, b) => a - b);
+  }
+
+  function subjectStyle(subject: string | null | undefined) {
+    const color = subjectColor(subject, displaySettings);
+    return color ? `background-color:${color};color:${subjectTextColor(color)}` : undefined;
+  }
+  function saveDisplaySettings(next: DisplaySettings) {
+    displaySettings = next;
+    if (school) { try { localStorage.setItem('opensigan-display:' + school.id, JSON.stringify(next)); } catch { /* 현재 설정은 페이지에서 유지됩니다. */ } }
+  }
+  function saveAlias(kind: 'subject' | 'teacher', key: string, value: string) {
+    if (!key) return;
+    const property = kind === 'subject' ? 'subjectAliases' : 'teacherAliases';
+    const aliases = { ...displaySettings[property] };
+    if (value.trim()) aliases[key] = value.trim().slice(0, 60);
+    else delete aliases[key];
+    saveDisplaySettings({ ...displaySettings, [property]: aliases });
+  }
+  function saveSubjectColor(value: string) {
+    if (!selectedSubject || !/^#[0-9a-fA-F]{6}$/.test(value)) return;
+    saveDisplaySettings({ ...displaySettings, subjectColors: { ...displaySettings.subjectColors, [selectedSubject]: value } });
+  }
+  function setColorMode(value: string) {
+    if (value === 'none' || value === 'auto' || value === 'custom') saveDisplaySettings({ ...displaySettings, colorMode: value as ColorMode });
+  }
+  function clearSubjectColors() { saveDisplaySettings({ ...displaySettings, subjectColors: {} }); }
 
   function toggleAllergy(id: number, checked: boolean) {
     allergySelection = checked ? [...new Set([...allergySelection, id])].sort((a, b) => a - b) : allergySelection.filter((value) => value !== id);
@@ -152,7 +195,7 @@
     grade = favorite.grade; classroom = favorite.classroom; classError = false;
     shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
     if (school?.id !== favorite.school.id) chooseSchool(favorite.school, true);
-    else schoolEditorOpen = false;
+    else { schoolEditorOpen = false; ensureAvailableClass(); }
     try {
       localStorage.setItem('opensigan-grade', String(grade));
       localStorage.setItem('opensigan-class', String(classroom));
@@ -182,11 +225,18 @@
     shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
     schoolRequest?.abort(); clearTimeout(schoolTimer); neisRequest?.abort(); mealRequest?.abort(); historyRequest?.abort();
     school = value; schoolQuery = value.name; schoolResults = []; schoolSearchState = ''; schoolEditorOpen = false;
+    selectedSubject = ''; selectedTeacher = ''; teacherQuery = '';
+    try { displaySettings = parseDisplaySettings(JSON.parse(localStorage.getItem('opensigan-display:' + value.id) || 'null')); }
+    catch { displaySettings = defaultDisplaySettings(); }
     historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; historyRequestKey = '';
     neis = null; neisResults = []; neisSearchState = ''; neisLoading = false;
     meals = []; hasMeals = false; mealsStale = false; mealState = ''; mealLoading = false; mealDataKey = ''; mealRequestKey = '';
-    try { localStorage.setItem('opensigan-school', JSON.stringify(value)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
-    loadTimetable(false, true);
+    try {
+      localStorage.setItem('opensigan-school', JSON.stringify(value));
+      localStorage.setItem('opensigan-grade', String(grade));
+      localStorage.setItem('opensigan-class', String(classroom));
+    } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
+    loadTimetable(false, true, true);
     try {
       const saved = localStorage.getItem(neisKey(value.id));
       if (saved) {
@@ -222,7 +272,20 @@
     if (school) { try { localStorage.setItem(neisKey(school.id), JSON.stringify(value)); } catch { /* 현재 연결은 저장 없이 유지합니다. */ } }
     loadMeals();
   }
-  function loadTimetable(preserve = false, reuseCachedWeek = false) {
+  function ensureAvailableClass() {
+    const grades = gradesInTimetable(timetable?.records ?? [], school && /(?:중학교|고등학교)/.test(school.name) ? 3 : 6);
+    const previousGrade = Number(grade);
+    const previousClass = Number(classroom);
+    if (grades.length && !grades.includes(previousGrade)) grade = grades[0];
+    const options = [...new Set((timetable?.records ?? []).filter((record) => Number(record.grade) === Number(grade))
+      .map((record) => Number(record.class)).filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b);
+    if (options.length && !options.includes(Number(classroom))) classroom = options[0];
+    if (previousGrade === Number(grade) && previousClass === Number(classroom)) return;
+    classError = false;
+    shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
+    try { localStorage.setItem('opensigan-grade', String(grade)); localStorage.setItem('opensigan-class', String(classroom)); } catch { /* 현재 선택을 유지합니다. */ }
+  }
+  function loadTimetable(preserve = false, reuseCachedWeek = false, validateClass = false) {
     tableRequest?.abort(); if (!preserve) timetable = null; tableState = ''; tableLoading = false;
     if (!school) return;
     const key = `${school.id}\u0000${week}`;
@@ -230,6 +293,7 @@
       const cached = timetableWeeks.get(key);
       if (cached && cached.expires > Date.now()) {
         timetable = cached.data;
+        if (validateClass) ensureAvailableClass();
         timetableRefreshAt = cached.expires;
         return;
       }
@@ -241,6 +305,7 @@
       .then((data) => {
         if (controller.signal.aborted) return;
         timetable = data;
+        if (validateClass) ensureAvailableClass();
         if (tableRefreshState === '갱신 중') tableRefreshState = data.stale ? '저장된 시간표 표시 중' : '새로고침 완료';
         if (!data.stale) {
           timetableWeeks.delete(key);
@@ -317,9 +382,9 @@
   function changeWeek(delta: number) {
     refreshCalendar(false); const next = addDays(week, delta * 7);
     if (next < current || next > addDays(current, 7)) return;
-    tableRefreshState = ''; exportState = ''; week = next; selectedDay = week === current ? today : week; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; loadTimetable(false, true);
+    tableRefreshState = ''; exportState = ''; teacherQuery = ''; week = next; selectedDay = week === current ? today : week; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; historyOpen = false; loadTimetable(false, true);
   }
-  function currentWeek() { refreshCalendar(false); const preserve = week === current; const reopenHistory = historyOpen; tableRefreshState = ''; week = current; selectedDay = today; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; loadTimetable(preserve); if (reopenHistory) void loadHistory(); }
+  function currentWeek() { refreshCalendar(false); const preserve = week === current; const reopenHistory = historyOpen; tableRefreshState = ''; if (!preserve) teacherQuery = ''; week = current; selectedDay = today; historyRequest?.abort(); historyRequestKey = ''; historyChanges = []; historyCursor = null; historyDisabled = false; historyError = ''; historyLoading = false; loadTimetable(preserve); if (reopenHistory) void loadHistory(); }
   function changeMealDate(delta: number) { mealDate = addDays(mealDate, delta); dateError = ''; loadMeals(); }
   function selectTimetableDate(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -333,10 +398,12 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value + 'T00:00:00Z'))) { dateError = '날짜를 선택해 주세요.'; return; }
     mealDate = value; dateError = ''; loadMeals();
   }
-  function changeTheme() {
-    theme = theme === 'dark' ? 'light' : 'dark';
+  function setTheme(value: string) {
+    if (value !== 'light' && value !== 'dark' && value !== 'system') return;
+    theme = value;
     try { localStorage.setItem('opensigan-theme', theme); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
   }
+  function changeTheme() { setTheme(themeIsDark(theme, systemDark) ? 'light' : 'dark'); }
   function refreshTimetable() {
     tableRefreshState = '갱신 중';
     loadTimetable(!!timetable);
@@ -352,9 +419,10 @@
         classroom: Number(classroom),
         week,
         selectedDay,
-        teacherName: teacherQuery,
+        teacherName: selectedTeacherName,
         records: timetable.records,
-        dark: theme === 'dark',
+        dark: isDark,
+        displaySettings,
       });
       exportState = 'PNG 다운로드를 시작했어요.';
     } catch (error) { exportState = errorText(error); }
@@ -362,7 +430,7 @@
   function updateClass(event: Event) {
     shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
-    classError = !Number.isInteger(value) || value < 1 || value > 99;
+    classError = !Number.isInteger(value) || value < 1 || value > 99 || (availableClasses.length > 0 && !availableClasses.includes(value));
     if (!classError) classroom = value;
   }
   function saveClass(event: Event) {
@@ -371,8 +439,7 @@
   }
   function saveGrade() {
     shareUrl = ''; shareState = ''; subscriptionUrl = ''; subscriptionState = '';
-    const options = [...new Set((timetable?.records ?? []).filter((r) => Number(r.grade) === Number(grade)).map((r) => Number(r.class)).filter((n) => Number.isInteger(n) && n > 0))];
-    if (options.length && !options.includes(Number(classroom))) classroom = Math.min(...options);
+    ensureAvailableClass();
     classError = false;
     try { localStorage.setItem('opensigan-grade', String(grade)); localStorage.setItem('opensigan-class', String(classroom)); } catch { /* 현재 선택은 저장 없이 유지합니다. */ }
   }
@@ -418,29 +485,33 @@
     const onFocus = () => refreshCalendar();
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('focus', onFocus);
+    const themeMedia = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    systemDark = themeMedia?.matches ?? false;
+    const onThemeMedia = (event: MediaQueryListEvent) => { systemDark = event.matches; };
+    themeMedia?.addEventListener?.('change', onThemeMedia);
     loadFavorites();
     try {
       const savedAllergies: unknown = JSON.parse(localStorage.getItem('opensigan-allergies') || '[]');
       if (Array.isArray(savedAllergies)) allergySelection = [...new Set(savedAllergies.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 19))].sort((a, b) => a - b);
-      const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
+      const savedTheme = localStorage.getItem('opensigan-theme'); if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') theme = savedTheme;
       const savedGrade = Number(localStorage.getItem('opensigan-grade')); if (savedGrade >= 1 && savedGrade <= 6) grade = savedGrade;
       const savedClass = Number(localStorage.getItem('opensigan-class')); if (Number.isInteger(savedClass) && savedClass >= 1 && savedClass <= 99) classroom = savedClass;
       const saved = localStorage.getItem('opensigan-school'); if (saved && !shared) chooseSchool(JSON.parse(saved) as School, true);
     } catch { /* 저장소를 사용할 수 없으면 기본 설정으로 시작합니다. */ }
     if (shared) { grade = shared.grade; classroom = shared.classroom; chooseSchool(shared.school, true); }
     return () => {
-      clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', onFocus); historyRequest?.abort();
+      clearInterval(calendarTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('focus', onFocus); themeMedia?.removeEventListener?.('change', onThemeMedia); historyRequest?.abort();
       clearTimeout(schoolTimer); schoolRequest?.abort(); neisRequest?.abort(); tableRequest?.abort(); mealRequest?.abort();
     };
   });
 </script>
 
 <svelte:head><title>{school?.name ?? '내 학교 캘린더'} — Opencigan</title></svelte:head>
-<div class:dark={theme === 'dark'} class="app-shell">
+<div class:dark={isDark} class="app-shell">
   <a class="skip-link" href="#calendar">캘린더 본문으로 건너뛰기</a>
   <header class="topbar">
     <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16"/></svg></span><span>Opencigan</span></div>
-    <button class="theme-toggle" onclick={changeTheme} aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}>{theme === 'dark' ? '라이트 모드' : '다크 모드'}</button>
+    <button class="theme-toggle" onclick={changeTheme} aria-label={isDark ? '라이트 모드로 전환' : '다크 모드로 전환'}>{isDark ? '라이트 모드' : '다크 모드'}</button>
   </header>
   <main>
     <section class="school-heading" aria-label="선택한 학교">
@@ -465,7 +536,7 @@
           <label for="grade">학년<select id="grade" bind:value={grade} onchange={saveGrade}>{#each gradeOptions as n}<option value={n}>{n}학년</option>{/each}</select></label>
           <label for="classroom">반<input id="classroom" type="number" min="1" max="99" step="1" required value={classroom} oninput={updateClass} onchange={saveClass} aria-invalid={classError} aria-describedby={classError ? 'class-error' : undefined} /></label>
         </div>
-        {#if classError}<p id="class-error" class="notice" role="alert">반은 1부터 99까지의 정수로 입력해 주세요.</p>{/if}
+        {#if classError}<p id="class-error" class="notice" role="alert">1~99 사이의 반을 입력해 주세요. 시간표가 있는 경우 등록된 반만 선택할 수 있어요.</p>{/if}
       </section>
     {/if}
     <nav class="calendar-menu" aria-label="캘린더 메뉴">
@@ -479,36 +550,83 @@
            {#if tableRefreshState}<p class="refresh-feedback" role="status">{tableRefreshState}</p>{/if}
            {#if exportState}<p class="export-feedback" role="status">{exportState}</p>{/if}
            <div class="view-switch timetable-switch" role="group" aria-label="시간표 보기"><button aria-pressed={timetableView === 'today'} onclick={() => selectTimetableView('today')}>오늘</button><button aria-pressed={timetableView === 'week'} onclick={() => selectTimetableView('week')}>이번 주</button><button aria-pressed={timetableView === 'grade'} onclick={() => selectTimetableView('grade')}>{grade}학년</button><button aria-pressed={timetableView === 'teacher'} onclick={() => selectTimetableView('teacher')}>교사</button></div>
-           {#if school}<div class="quick-class" aria-label="학급 빠른 전환"><label>학년 <select bind:value={grade} onchange={saveGrade}>{#each gradeOptions as n}<option value={n}>{n}학년</option>{/each}</select></label><label>반 <select bind:value={classroom} onchange={saveClassFromSelect}>{#if availableClasses.length === 0 || !availableClasses.includes(Number(classroom))}<option value={Number(classroom)}>{classroom}반</option>{/if}{#each availableClasses as n}<option value={n}>{n}반</option>{/each}</select></label>{#if !availableClasses.length}<span class="quick-class-hint">등록된 학급 정보를 불러오는 중이에요.</span>{/if}</div>{/if}
+           {#if school}<div class="quick-class" aria-label="학급 빠른 전환"><label>학년 <select bind:value={grade} onchange={saveGrade}>{#each gradeOptions as n}<option value={n}>{n}학년</option>{/each}</select></label><label>반 <select bind:value={classroom} onchange={saveClassFromSelect}>{#if !availableClasses.length}<option value={Number(classroom)}>{classroom}반</option>{/if}{#each availableClasses as n}<option value={n}>{n}반</option>{/each}</select></label>{#if !availableClasses.length}<span class="quick-class-hint">{tableLoading ? '학급 정보를 불러오는 중이에요.' : '이 학년의 학급 정보가 없어요.'}</span>{/if}</div>{/if}
+           {#if school}
+             <details class="display-settings">
+               <summary>시간표 표시 설정</summary>
+               <div class="display-settings-grid">
+                <label>테마
+                  <select value={theme} onchange={(event) => setTheme(event.currentTarget.value)}>
+                    <option value="light">라이트 모드</option><option value="dark">다크 모드</option><option value="system">시스템 설정 따르기</option>
+                  </select>
+                </label>
+                 <label>과목 색상
+                   <select value={displaySettings.colorMode} onchange={(event) => setColorMode(event.currentTarget.value)}>
+                     <option value="none">색상 없음 (기본)</option><option value="auto">자동 색상</option><option value="custom">직접 선택</option>
+                   </select>
+                 </label>
+                 <label>과목 선택
+                   <select bind:value={selectedSubject} disabled={!subjectNames.length}>
+                     <option value="">과목을 선택하세요</option>{#each subjectNames as subject}<option value={subject}>{subject}</option>{/each}
+                   </select>
+                 </label>
+                 <label>과목 표시 이름
+                   <input type="text" value={displaySettings.subjectAliases[selectedSubject] || ''} disabled={!selectedSubject} maxlength="60" placeholder="원본 이름 유지" oninput={(event) => saveAlias('subject', selectedSubject, event.currentTarget.value)} />
+                 </label>
+                 {#if displaySettings.colorMode === 'custom'}
+                   <label>선택한 과목 색상
+                     <input type="color" value={displaySettings.subjectColors[selectedSubject] || '#dcebfD'} disabled={!selectedSubject} onchange={(event) => saveSubjectColor(event.currentTarget.value)} />
+                   </label>
+                   <button type="button" class="secondary-button display-reset" onclick={clearSubjectColors}>과목 색상 초기화</button>
+                 {/if}
+                 <label class="display-toggle"><input type="checkbox" checked={displaySettings.showTeachers} onchange={(event) => saveDisplaySettings({ ...displaySettings, showTeachers: event.currentTarget.checked })} /> 시간표에 교사 표시</label>
+                 <label>교사 선택
+                   <select bind:value={selectedTeacher} disabled={!teacherNames.length}>
+                     <option value="">교사를 선택하세요</option>{#each teacherNames as teacher}<option value={teacher}>{teacher}</option>{/each}
+                   </select>
+                 </label>
+                 <label>교사 표시 이름
+                   <input type="text" value={displaySettings.teacherAliases[selectedTeacher] || ''} disabled={!selectedTeacher} maxlength="60" placeholder="원본 이름 유지" oninput={(event) => saveAlias('teacher', selectedTeacher, event.currentTarget.value)} />
+                 </label>
+                 <label>모든 교사 이름 앞에 추가
+                   <input type="text" value={displaySettings.teacherPrefix} maxlength="30" placeholder="예: 선생님 " oninput={(event) => saveDisplaySettings({ ...displaySettings, teacherPrefix: event.currentTarget.value })} />
+                 </label>
+                 <label>모든 교사 이름 뒤에 추가
+                   <input type="text" value={displaySettings.teacherSuffix} maxlength="30" placeholder="예: T" oninput={(event) => saveDisplaySettings({ ...displaySettings, teacherSuffix: event.currentTarget.value })} />
+                 </label>
+               </div>
+               <p class="display-settings-hint">원본 시간표는 그대로 유지되며 이 학교의 표시 설정만 브라우저에 저장됩니다.</p>
+             </details>
+           {/if}
            <div class="calendar-toolbar"><button class="arrow-button" onclick={() => changeWeek(-1)} disabled={week <= current} aria-label="이전 주">←</button><div class="calendar-date" aria-live="polite"><strong>{shortDate(week)} ~ {shortDate(addDays(week, weekendClasses ? 6 : 4))}</strong></div><button class="arrow-button" onclick={() => changeWeek(1)} disabled={week >= addDays(current, 7)} aria-label="다음 주">→</button></div>
-          {#if timetable && !classError && timetableView === 'week'}<details class="lesson-search"><summary>이 반의 수업 찾기</summary><div class="lesson-search-fields"><label>과목명 또는 교사명<input type="search" bind:value={lessonQuery} placeholder="이번 주 수업 검색" maxlength="100" /></label><label>요일<select bind:value={lessonWeekday}><option value="">모든 요일</option>{#each ['일', '월', '화', '수', '목', '금', '토'] as day, index}<option value={String(index)}>{day}요일</option>{/each}</select></label></div>{#if lessonQuery.trim() || lessonWeekday}<p role="status">검색 결과 {matchingLessons.length}개</p>{#if matchingLessons.length}<div class="lesson-list">{#each matchingLessons as lesson}<article><span class="lesson-period">{dateText(lesson.date, { weekday: 'short' })} · {lesson.period}교시</span><strong>{lesson.subject || '수업 정보 없음'}</strong><span>{lesson.teacher || '교사 정보 없음'}</span></article>{/each}</div>{:else}<p>이 반의 이번 주 수업 중 일치하는 결과가 없어요.</p>{/if}{/if}</details>{/if}
+          {#if timetable && !classError && timetableView === 'week'}<details class="lesson-search"><summary>이 반의 수업 찾기</summary><div class="lesson-search-fields"><label>과목명 또는 교사명<input type="search" bind:value={lessonQuery} placeholder="이번 주 수업 검색" maxlength="100" /></label><label>요일<select bind:value={lessonWeekday}><option value="">모든 요일</option>{#each ['일', '월', '화', '수', '목', '금', '토'] as day, index}<option value={String(index)}>{day}요일</option>{/each}</select></label></div>{#if lessonQuery.trim() || lessonWeekday}<p role="status">검색 결과 {matchingLessons.length}개</p>{#if matchingLessons.length}<div class="lesson-list">{#each matchingLessons as lesson}<article><span class="lesson-period">{dateText(lesson.date, { weekday: 'short' })} · {lesson.period}교시</span><strong style={subjectStyle(lesson.subject)}>{displaySubject(lesson.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && lesson.teacher}<span>{displayTeacher(lesson.teacher, displaySettings)}</span>{/if}</article>{/each}</div>{:else}<p>이 반의 이번 주 수업 중 일치하는 결과가 없어요.</p>{/if}{/if}</details>{/if}
           {#if tableState}<div class="notice" role="alert">{timetable ? '이전 시간표를 표시하고 있어요. ' : ''}{tableState} <button class="text-button" onclick={() => loadTimetable(!!timetable)}>다시 시도</button></div>{/if}
           {#if !school}<div class="state-message"><strong>학교를 먼저 선택해 주세요</strong><p>학교와 학급을 선택하면 시간표가 표시돼요.</p></div>
           {:else if tableLoading && !timetable}<div class="state-message" role="status"><strong>시간표를 불러오고 있어요.</strong></div>
           {:else if classError}<div class="state-message">반을 1부터 99까지의 정수로 입력해 주세요.</div>
           {:else if timetable && timetableView === 'today'}
             <div class="day-picker"><label for="today-date">날짜</label><input id="today-date" type="date" min={week} max={addDays(week, 6)} value={selectedDay} onchange={selectTimetableDate} /><span>{selectedDay === today ? '오늘' : dateText(selectedDay, { weekday: 'long' })}</span></div>
-            {#if dayRecords.some((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom))}<div class="lesson-list" aria-label="선택한 날짜 시간표">{#each dayRecords.filter((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom)).sort((a,b) => Number(a.period)-Number(b.period)) as item}<article><span class="lesson-period">{item.period}교시</span><strong>{item.subject || '수업 정보 없음'}</strong><span>{item.teacher || '교사 정보 없음'}</span>{#if item.isChanged}<span class="change-label">변동</span>{/if}</article>{/each}</div>{:else}<div class="state-message"><strong>이 날짜의 시간표가 없어요</strong><p>다른 날짜를 선택하거나 주간 반 시간표를 확인해 주세요.</p></div>{/if}
+             {#if dayRecords.some((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom))}<div class="lesson-list" aria-label="선택한 날짜 시간표">{#each dayRecords.filter((item) => Number(item.grade) === Number(grade) && Number(item.class) === Number(classroom)).sort((a,b) => Number(a.period)-Number(b.period)) as item}<article><span class="lesson-period">{item.period}교시</span><strong style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && item.teacher}<span>{displayTeacher(item.teacher, displaySettings)}</span>{/if}{#if item.isChanged}<span class="change-label">변동</span>{/if}</article>{/each}</div>{:else}<div class="state-message"><strong>이 날짜의 시간표가 없어요</strong><p>다른 날짜를 선택하거나 주간 반 시간표를 확인해 주세요.</p></div>{/if}
           {:else if timetable && timetableView === 'grade'}
             <div class="day-picker"><label for="grade-date">비교 날짜</label><input id="grade-date" type="date" min={week} max={addDays(week, 6)} value={selectedDay} onchange={selectTimetableDate} /></div>
             {#if comparableClasses.length}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <div class="table-scroll" tabindex="0" role="region" aria-label={grade + '학년 학급별 비교 시간표'}><table class="timetable comparison-table"><caption class="sr-only">{school.name} {grade}학년 {dateText(selectedDay)} 학급별 교시 비교</caption><thead><tr><th scope="col">교시</th>{#each comparableClasses as classNumber}<th scope="col">{classNumber}반</th>{/each}</tr></thead><tbody>{#each Array.from({ length: Math.max(0, ...dayRecords.filter((item) => Number(item.grade) === Number(grade)).map((item) => Number(item.period))) }, (_, index) => index + 1) as period}<tr><th scope="row">{period}교시</th>{#each comparableClasses as classNumber}{@const lesson = dayRecords.find((item) => Number(item.grade) === Number(grade) && Number(item.class) === classNumber && Number(item.period) === period)}<td>{#if lesson}<div class="class-cell"><strong>{lesson.subject || '수업 정보 없음'}</strong><span>{lesson.teacher || '교사 정보 없음'}</span></div>{:else}<span class="empty-cell">—</span>{/if}</td>{/each}</tr>{/each}</tbody></table></div>{:else}<div class="state-message"><strong>비교할 시간표가 없어요</strong><p>선택한 날짜에 선택 학년의 수업이 없습니다.</p></div>{/if}
+               <div class="table-scroll" tabindex="0" role="region" aria-label={grade + '학년 학급별 비교 시간표'}><table class="timetable comparison-table"><caption class="sr-only">{school.name} {grade}학년 {dateText(selectedDay)} 학급별 교시 비교</caption><thead><tr><th scope="col">교시</th>{#each comparableClasses as classNumber}<th scope="col">{classNumber}반</th>{/each}</tr></thead><tbody>{#each Array.from({ length: Math.max(0, ...gradeRecords.map((item) => Number(item.period))) }, (_, index) => index + 1) as period}<tr><th scope="row">{period}교시</th>{#each comparableClasses as classNumber}{@const lessons = slotLessons(gradeRecords, selectedDay, period, classNumber)}<td class:changed={lessons.some((lesson) => lesson.isChanged)}>{#each lessons as lesson}<div class="class-cell"><strong style={subjectStyle(lesson.subject)}>{displaySubject(lesson.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && lesson.teacher}<span>{displayTeacher(lesson.teacher, displaySettings)}</span>{/if}{#if lesson.isChanged}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell">—</span>{/each}</td>{/each}</tr>{/each}</tbody></table></div>{:else}<div class="state-message"><strong>비교할 시간표가 없어요</strong><p>선택한 날짜에 선택 학년의 수업이 없습니다.</p></div>{/if}
            {:else if timetable && timetableView === 'teacher'}
              <label class="teacher-search" for="teacher-search">교사별 주간 시간표<input id="teacher-search" type="search" bind:value={teacherQuery} placeholder="교사 이름 입력 또는 목록에서 선택" autocomplete="off" /></label>
-             {#if !selectedTeacherRecords.length && teacherSuggestions.length}<div class="teacher-options" aria-label="선택 가능한 교사 목록">{#each teacherSuggestions as teacherName}<button class="secondary-button" onclick={() => teacherQuery = teacherName}>{teacherName}</button>{/each}</div>{/if}
+              {#if !selectedTeacherRecords.length && teacherSuggestions.length}<div class="teacher-options" aria-label="선택 가능한 교사 목록">{#each teacherSuggestions as teacherName}<button class="secondary-button" onclick={() => teacherQuery = teacherName}>{displayTeacher(teacherName, displaySettings)}</button>{/each}</div>{/if}
              {#if selectedTeacherRecords.length}
-               <p class="table-hint">{teacherQuery} 선생님 · 이번 주 수업 (동명이인은 원본 시간표에서 구분할 수 없어요.)</p>
+                <p class="table-hint">{displayTeacher(selectedTeacherName, displaySettings)} 선생님 · 이번 주 수업 (동명이인은 원본 시간표에서 구분할 수 없어요.)</p>
                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-               <div class="table-scroll" tabindex="0" role="region" aria-label={`${teacherQuery} 선생님 주간 시간표`}>
-                 <table class="timetable teacher-table"><caption class="sr-only">{teacherQuery} 선생님 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each teacherDates as date}<th scope="col"><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}</small></th>{/each}</tr></thead><tbody>{#each teacherPeriods as period}<tr><th scope="row">{period}교시</th>{#each teacherDates as date}<td>{#each selectedTeacherRecords.filter((r) => r.date === date && Number(r.period) === period) as item}<div class="class-cell"><strong>{item.grade}학년 {item.class}반</strong><span>{item.subject || '과목 정보 없음'}</span></div>{:else}<span class="empty-cell">—</span>{/each}</td>{/each}</tr>{/each}</tbody></table>
+                <div class="table-scroll" tabindex="0" role="region" aria-label={`${displayTeacher(selectedTeacherName, displaySettings)} 선생님 주간 시간표`}>
+                  <table class="timetable teacher-table"><caption class="sr-only">{displayTeacher(selectedTeacherName, displaySettings)} 선생님 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each teacherDates as date}<th scope="col"><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}</small></th>{/each}</tr></thead><tbody>{#each teacherPeriods as period}<tr><th scope="row">{period}교시</th>{#each teacherDates as date}<td>{#each selectedTeacherRecords.filter((r) => r.date === date && Number(r.period) === period) as item}<div class="class-cell"><strong>{item.grade}학년 {item.class}반</strong><span style={subjectStyle(item.subject)}>{displaySubject(item.subject, displaySettings)}</span></div>{:else}<span class="empty-cell">—</span>{/each}</td>{/each}</tr>{/each}</tbody></table>
                </div>
              {:else if teacherQuery.trim() && !teacherSuggestions.length}<div class="state-message"><strong>검색된 교사가 없어요</strong><p>다른 이름을 입력해 주세요.</p></div>{:else}<p class="table-hint">목록에서 이름을 고르면 월~금 시간표가 표시돼요.</p>{/if}
           {:else if timetable && timetableView === 'week' && filtered.length}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
             <div class="table-scroll" tabindex="0" role="region" aria-label="주간 시간표, 좌우로 스크롤 가능">
               <table class="timetable"><caption class="sr-only">{school.name} {grade}학년 {classroom}반 주간 시간표</caption><thead><tr><th scope="col">교시</th>{#each dates as date}<th scope="col" class:today-column={date === today} aria-current={date === today ? 'date' : undefined}><span>{dateText(date, { weekday: 'short' })}</span><small>{dateText(date)}{date === today ? ' · 오늘' : ''}</small></th>{/each}</tr></thead>
-                <tbody>{#each periods as period}<tr><th scope="row">{period}<span class="sr-only">교시</span></th>{#each dates as date}<td class:today-column={date === today} class:changed={record(date, period)?.isChanged}>{#if record(date, period)}<div class="class-cell"><strong>{record(date, period)?.subject || '수업 정보 없음'}</strong>{#if record(date, period)?.teacher}<span>{record(date, period)?.teacher}</span>{/if}{#if record(date, period)?.isChanged}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell" aria-label="수업 없음">—</span>{/if}</td>{/each}</tr>{/each}</tbody>
+                 <tbody>{#each periods as period}<tr><th scope="row">{period}<span class="sr-only">교시</span></th>{#each dates as date}{@const lessons = slotLessons(filtered, date, period)}<td class:today-column={date === today} class:changed={lessons.some((lesson) => lesson.isChanged)}>{#each lessons as lesson}<div class="class-cell"><strong style={subjectStyle(lesson.subject)}>{displaySubject(lesson.subject, displaySettings)}</strong>{#if displaySettings.showTeachers && lesson.teacher}<span>{displayTeacher(lesson.teacher, displaySettings)}</span>{/if}{#if lesson.isChanged}<span class="change-label">변동</span>{/if}</div>{:else}<span class="empty-cell" aria-label="수업 없음">—</span>{/each}</td>{/each}</tr>{/each}</tbody>
               </table>
             </div>
              <p class="table-hint">‘변동’ 표시는 수업 정보 변경을 뜻해요.</p>

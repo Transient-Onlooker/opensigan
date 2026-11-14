@@ -6,8 +6,15 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/export-png.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const personalizationSource = await readFile(new URL('../src/personalization.ts', import.meta.url), 'utf8');
+const personalizationCompiled = ts.transpileModule(personalizationSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const personalization = {};
+runInNewContext(personalizationCompiled, { exports: personalization });
 const exports = {};
-runInNewContext(compiled, { exports });
+runInNewContext(compiled, { exports, require: (name) => {
+  if (name === './personalization') return personalization;
+  throw new Error(`Unexpected dependency: ${name}`);
+} });
 const { createExportGrid } = exports;
 
 const lessons = [
@@ -45,4 +52,24 @@ test('today view exports only the chosen date', () => {
   assert.deepEqual(Array.from(grid.periods), [1, 2, 3]);
   assert.equal(grid.rows[2][0][0].title, '수학Ⅱ');
   assert.equal(grid.rows[0][0].length, 0);
+});
+
+test('export personalizes displayed labels without altering source records', () => {
+  const settings = {
+    ...personalization.defaultDisplaySettings(),
+    colorMode: 'custom',
+    subjectColors: { [lessons[0].subject]: '#ff0000' },
+    subjectAliases: { [lessons[0].subject]: '짧은 과목' },
+    teacherAliases: { [lessons[0].teacher]: '선생님 별칭' },
+    teacherSuffix: 'T',
+  };
+  const grid = createExportGrid({ ...options, displaySettings: settings });
+  assert.equal(grid.rows[0][0][0].title, '짧은 과목');
+  assert.equal(grid.rows[0][0][0].detail, '선생님 별칭T');
+  assert.equal(grid.rows[0][0][0].color, '#ff0000');
+  assert.equal(lessons[0].subject, Object.keys(settings.subjectAliases)[0]);
+  assert.equal(createExportGrid({ ...options, displaySettings: { ...settings, showTeachers: false } }).rows[0][0][0].detail, '');
+  const teacherGrid = createExportGrid({ ...options, view: 'teacher', teacherName: lessons[0].teacher, displaySettings: settings });
+  assert.match(teacherGrid.subtitle, /선생님 별칭T/);
+  assert.equal(teacherGrid.rows[0][0][0].detail, '짧은 과목');
 });

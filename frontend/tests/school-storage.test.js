@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { personalizationVm } from './helpers/personalization-vm.js';
 
 test('학교 선택 시 저장이 실패해도 이전 학교 데이터가 남지 않는다', async () => {
   const component = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
@@ -14,6 +15,7 @@ test('학교 선택 시 저장이 실패해도 이전 학교 데이터가 남지
   let failWrites = false;
   let failReads = false;
   const app = runInNewContext(javascript, {
+    ...personalizationVm,
     onMount() {}, currentKoreaDate: () => '2026-11-10', monday: () => '2026-11-09',
     addDays: () => '2026-11-15', clampWeek: (week) => week,
     localStorage: {

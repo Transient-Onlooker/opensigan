@@ -3,27 +3,30 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { personalizationVm } from './helpers/personalization-vm.js';
 
 const component = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
 const script = component.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
   .replace(/^\s*import .*;\s*$/gm, '');
 const source = ts.transpile(`(function () { ${script}
-  return { chooseSchool, loadFavorites, addFavorite, removeFavorite, switchToFavorite,
+  return { chooseSchool, loadFavorites, addFavorite, removeFavorite, switchToFavorite, updateClass,
     setClass: (value) => { classroom = value; },
-    state: () => ({ school, grade, classroom, favorites }) };
+    setAvailableClasses: (values) => { availableClasses = values; },
+    state: () => ({ school, grade, classroom, classError, favorites }) };
 })()`, { target: ts.ScriptTarget.ES2022 });
 
-function setup(initial = []) {
+function setup(initial = [], recordsBySchool = {}) {
   const store = new Map([['opensigan-favorites', JSON.stringify(initial)]]);
   const requests = [];
   const app = runInNewContext(source, {
+    ...personalizationVm,
     onMount() {}, currentKoreaDate: () => '2026-11-14', monday: () => '2026-11-09',
     addDays: () => '2026-11-15', clampWeek: (week) => week,
     localStorage: {
       getItem: (key) => store.get(key) ?? null,
       setItem: (key, value) => store.set(key, value),
     },
-    getTimetable: (id) => { requests.push(id); return Promise.resolve({ schoolId: id, records: [] }); },
+    getTimetable: (id) => { requests.push(id); return Promise.resolve({ schoolId: id, records: recordsBySchool[id] ?? [] }); },
     searchNeisSchools: () => new Promise(() => {}),
     AbortController, setTimeout, clearTimeout,
   });
@@ -69,4 +72,38 @@ test('저장소에서 잘못된 항목과 중복을 거르고 10개까지만 복
   assert.equal(app.state().favorites.length, 10);
   assert.equal(app.state().favorites[0].classroom, 1);
   assert.equal(app.state().favorites[9].classroom, 10);
+});
+
+test('학교 변경과 즐겨찾기 전환 시 실제 학년·반을 선택하고 저장한다', async () => {
+  const { app, requests, store } = setup([], {
+    [first.id]: [{ grade: 2, class: 3, period: 1, date: '2026-11-09', subject: '국어' }],
+    [second.id]: [{ grade: 1, class: 2, period: 1, date: '2026-11-09', subject: '수학' }],
+  });
+
+  app.chooseSchool(first);
+  await new Promise(setImmediate);
+  assert.equal(app.state().grade, 2);
+  assert.equal(app.state().classroom, 3);
+  assert.equal(store.get('opensigan-grade'), '2');
+  assert.equal(store.get('opensigan-class'), '3');
+
+  app.setAvailableClasses([3]);
+  app.updateClass({ currentTarget: { valueAsNumber: 9 } });
+  assert.equal(app.state().classError, true);
+  assert.equal(app.state().classroom, 3);
+
+  app.switchToFavorite({ school: first, grade: 2, classroom: 9 });
+  assert.equal(app.state().classroom, 3);
+  assert.equal(requests.length, 1, '같은 학교에서는 추가 API 요청이 없다');
+
+  app.chooseSchool(second);
+  await new Promise(setImmediate);
+  assert.equal(app.state().grade, 1);
+  assert.equal(app.state().classroom, 2);
+  assert.equal(store.get('opensigan-class'), '2');
+
+  app.switchToFavorite({ school: first, grade: 2, classroom: 1 });
+  assert.equal(app.state().school.id, first.id);
+  assert.equal(app.state().classroom, 3, '캐시된 시간표에서도 유효한 반으로 보정한다');
+  assert.equal(requests.length, 2);
 });

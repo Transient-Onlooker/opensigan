@@ -3,22 +3,31 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { personalizationVm } from './helpers/personalization-vm.js';
 
 for (const failure of ['property access', 'storage methods']) {
   test(`storage unavailable through ${failure}: startup and settings remain usable`, async () => {
     const component = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
     const script = component.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
       .replace(/^\s*import .*;\s*$/gm, '');
-    const harness = `${script}\nreturn { changeTheme, saveGrade, saveClass, setGrade: (value) => grade = value, state: () => ({ theme, grade, classroom, classError }) };`;
+    const harness = `${script}\nreturn { changeTheme, setTheme, saveGrade, saveClass, setGrade: (value) => grade = value, state: () => ({ theme, dark: themeIsDark(theme, systemDark), grade, classroom, classError }) };`;
     const javascript = ts.transpile(`(function () { ${harness} })()`, { target: ts.ScriptTarget.ES2022 });
     let mount;
+    let themeChange;
+    let themeListenerRemoved = false;
     const context = {
+      ...personalizationVm,
       onMount: (callback) => { mount = callback; },
       isAnalyticsEnabled: () => false,
       currentKoreaDate: () => '2026-11-10', monday: () => '2026-11-09',
       addDays: () => '2026-11-15', clampWeek: (week) => week,
       document: { addEventListener() {}, removeEventListener() {} },
-      window: { addEventListener() {}, removeEventListener() {} },
+      window: {
+        addEventListener() {}, removeEventListener() {},
+        matchMedia: (query) => query === '(prefers-color-scheme: dark)'
+          ? { matches: true, addEventListener: (_, callback) => { themeChange = callback; }, removeEventListener: (_, callback) => { themeListenerRemoved = callback === themeChange; } }
+          : { matches: false },
+      },
       setInterval: () => 1, clearInterval() {}, clearTimeout() {},
     };
     const unavailable = () => { throw new Error('storage unavailable'); };
@@ -38,6 +47,12 @@ for (const failure of ['property access', 'storage methods']) {
     const errors = [];
     try { app.changeTheme(); } catch { errors.push('theme'); }
     assert.equal(app.state().theme, 'dark');
+    app.setTheme('system');
+    assert.equal(app.state().dark, true);
+    themeChange({ matches: false });
+    assert.equal(app.state().dark, false, '시스템 테마 변경을 즉시 반영한다');
+    app.setTheme('invalid');
+    assert.equal(app.state().theme, 'system');
     app.setGrade(3);
     try { app.saveGrade(); } catch { errors.push('grade'); }
     assert.equal(app.state().grade, 3);
@@ -48,5 +63,6 @@ for (const failure of ['property access', 'storage methods']) {
     assert.equal(app.state().classError, true);
     assert.equal(app.state().classroom, 7);
     assert.doesNotThrow(cleanup);
+    assert.equal(themeListenerRemoved, true);
   });
 }

@@ -1,4 +1,5 @@
 import type { TimetableRecord } from './api';
+import { defaultDisplaySettings, displaySubject, displayTeacher, subjectColor, subjectTextColor, type DisplaySettings } from './personalization';
 
 export type ExportView = 'today' | 'week' | 'teacher';
 
@@ -12,9 +13,10 @@ export interface ExportOptions {
   teacherName: string;
   records: TimetableRecord[];
   dark: boolean;
+  displaySettings?: DisplaySettings;
 }
 
-type ExportLesson = { title: string; detail: string };
+type ExportLesson = { title: string; detail: string; color?: string };
 
 function addDate(date: string, offset: number) {
   const value = new Date(date + 'T00:00:00Z');
@@ -28,6 +30,7 @@ function labelDate(date: string) {
 
 export function createExportGrid(options: ExportOptions) {
   const { view, records, grade, classroom, teacherName, schoolName, selectedDay, week } = options;
+  const settings = options.displaySettings ?? defaultDisplaySettings();
   const dates = view === 'today' ? [selectedDay] : Array.from({ length: 5 }, (_, index) => addDate(week, index));
   const selected = records.filter((lesson) => view === 'teacher'
     ? !!teacherName.trim() && lesson.teacher?.trim() === teacherName.trim() && dates.includes(lesson.date)
@@ -36,12 +39,13 @@ export function createExportGrid(options: ExportOptions) {
   const rows = periods.map((period) => dates.map((date): ExportLesson[] => selected
     .filter((lesson) => lesson.date === date && Number(lesson.period) === period)
     .map((lesson) => ({
-      title: view === 'teacher' ? `${lesson.grade}학년 ${lesson.class}반` : lesson.subject || '수업 정보 없음',
-      detail: view === 'teacher' ? lesson.subject || '과목 정보 없음' : lesson.teacher || '',
+      title: view === 'teacher' ? `${lesson.grade}학년 ${lesson.class}반` : displaySubject(lesson.subject, settings),
+      detail: view === 'teacher' ? displaySubject(lesson.subject, settings) : settings.showTeachers && lesson.teacher ? displayTeacher(lesson.teacher, settings) : '',
+      color: subjectColor(lesson.subject, settings),
     }))));
   return {
     title: schoolName,
-    subtitle: view === 'teacher' ? `${teacherName.trim()} 선생님 · ${labelDate(dates[0])} ~ ${labelDate(dates[dates.length - 1])}`
+    subtitle: view === 'teacher' ? `${displayTeacher(teacherName.trim(), settings)} 선생님 · ${labelDate(dates[0])} ~ ${labelDate(dates[dates.length - 1])}`
       : `${grade}학년 ${classroom}반 · ${view === 'today' ? labelDate(selectedDay) : `${labelDate(dates[0])} ~ ${labelDate(dates[dates.length - 1])}`}`,
     columns: dates.map(labelDate),
     periods,
@@ -141,13 +145,21 @@ export async function saveTimetablePng(options: ExportOptions) {
       let textY = y + 14;
       ctx.textAlign = 'left';
       for (const lesson of row[column]) {
-        ctx.font = `700 20px ${font}`; ctx.fillStyle = colors.text;
-        for (const line of wrappedText(ctx, lesson.title, cellWidth - 24)) {
+        ctx.font = `700 20px ${font}`;
+        const title = wrappedText(ctx, lesson.title, cellWidth - 24);
+        ctx.font = `400 16px ${font}`;
+        const detail = lesson.detail ? wrappedText(ctx, lesson.detail, cellWidth - 24) : [];
+        if (lesson.color) {
+          ctx.fillStyle = lesson.color;
+          ctx.fillRect(x - 6, textY - 4, cellWidth - 12, title.length * 26 + detail.length * 22 + 8);
+        }
+        ctx.font = `700 20px ${font}`; ctx.fillStyle = lesson.color ? subjectTextColor(lesson.color) : colors.text;
+        for (const line of title) {
           ctx.fillText(line, x, textY); textY += 26;
         }
-        if (lesson.detail) {
-          ctx.font = `400 16px ${font}`; ctx.fillStyle = colors.sub;
-          for (const line of wrappedText(ctx, lesson.detail, cellWidth - 24)) {
+        if (detail.length) {
+          ctx.font = `400 16px ${font}`; ctx.fillStyle = lesson.color ? subjectTextColor(lesson.color) : colors.sub;
+          for (const line of detail) {
             ctx.fillText(line, x, textY); textY += 22;
           }
         }

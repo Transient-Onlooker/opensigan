@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { personalizationVm } from './helpers/personalization-vm.js';
 
 const addDays = (key, days) => {
   const date = new Date(`${key}T00:00:00Z`);
@@ -25,6 +26,7 @@ async function createApp() {
   const calls = { timetable: [], meals: [] };
   const pending = (list, id, args) => new Promise((resolve, reject) => list.push({ id, ...args, resolve, reject }));
   const context = {
+    ...personalizationVm,
     onMount() {}, currentKoreaDate: () => '2026-11-10', monday, addDays, clampWeek,
     document: { visibilityState: 'visible' },
     Date: class extends Date { static now() { return now; } },
